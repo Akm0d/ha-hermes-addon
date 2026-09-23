@@ -1,4 +1,4 @@
 configuration:
   config_yaml:
     name: Hermes configuration YAML
-    description: Complete native Hermes config.yaml content. It replaces /opt/data/config.yaml at app startup.
+    description: Native Hermes config.yaml. This editor reflects /opt/data/config.yaml; saving changes updates the native file and restarts Hermes.

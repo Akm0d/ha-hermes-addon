@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Materialize the one Home Assistant option before Hermes' cont-init hook."""
+"""Mirror native Hermes config.yaml and the single Supervisor option."""
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 import pwd
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -17,29 +20,29 @@ import yaml
 
 
 HERMES_HOME = Path("/opt/data")
+CONFIG_PATH = HERMES_HOME / "config.yaml"
 STANDARD_OPTIONS = Path("/data/options.json")
 MAPPED_OPTIONS = HERMES_HOME / "options.json"
-LEGACY_OPTIONS = frozenset(
-    {
-        "enable_ha_cli",
-        "timezone",
-        "model_provider",
-        "model_name",
-        "model_base_url",
-        "openrouter_api_key",
-        "google_api_key",
-        "anthropic_api_key",
-        "openai_api_key",
-        "enable_dashboard_tui",
-        "enable_terminal",
-        "gateway_timeout",
-    }
-)
+POLL_SECONDS = 2
+MIRROR_SETTLE_SECONDS = 10
 
 
 def fail(message: str) -> None:
-    print(f"[ha-options] ERROR: {message}", file=sys.stderr)
+    print(f"[ha-config-sync] ERROR: {message}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def require_mapping(value: Any, message: str) -> None:
+    if not isinstance(value, dict):
+        fail(message)
+
+
+def validate_config(raw: str) -> None:
+    try:
+        loaded = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        fail("native /opt/data/config.yaml must be valid YAML with a mapping at its document root")
+    require_mapping(loaded, "native /opt/data/config.yaml must be valid YAML with a mapping at its document root")
 
 
 def same_file(first: Path, second: Path) -> bool:
@@ -56,7 +59,7 @@ def options_path() -> Path:
         fail("found conflicting Home Assistant options files")
     if standard_exists:
         return STANDARD_OPTIONS
-    if MAPPED_OPTIONS.is_file():
+    if mapped_exists:
         return MAPPED_OPTIONS
     fail("Home Assistant options.json was not found")
 
@@ -70,43 +73,24 @@ def load_options(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def validate_config(raw: str) -> None:
+def option_config(options: dict[str, Any]) -> str:
+    raw = options.get("config_yaml", "{}\n")
+    if not isinstance(raw, str):
+        fail("config_yaml must be a string")
+    return raw
+
+
+def read_native_config() -> str:
     try:
-        loaded = yaml.safe_load(raw)
-    except yaml.YAMLError:
-        fail("config_yaml must be valid YAML with a mapping at its document root")
-    require_mapping(loaded, "config_yaml must be valid YAML with a mapping at its document root")
+        raw = CONFIG_PATH.read_text(encoding="utf-8")
+    except OSError:
+        fail("could not read native /opt/data/config.yaml after Hermes initialization")
+    validate_config(raw)
+    return raw
 
 
-def require_mapping(value: Any, message: str) -> None:
-    if not isinstance(value, dict):
-        fail(message)
-
-
-def legacy_config_yaml(options: dict[str, Any], raw: str | None) -> str:
-    """Preserve verified legacy model settings only when native YAML is empty."""
-    if raw is not None:
-        try:
-            if yaml.safe_load(raw) != {}:
-                return raw
-        except yaml.YAMLError:
-            return raw
-
-    model: dict[str, str] = {}
-    for old_key, native_key in (
-        ("model_provider", "provider"),
-        ("model_name", "default"),
-        ("model_base_url", "base_url"),
-    ):
-        value = options.get(old_key)
-        if isinstance(value, str) and value.strip():
-            model[native_key] = value.strip()
-    if not model:
-        return raw if raw is not None else "{}\n"
-    return yaml.safe_dump({"model": model}, sort_keys=False, allow_unicode=False)
-
-
-def write_config(raw: str) -> None:
+def write_native_config(raw: str) -> None:
+    validate_config(raw)
     try:
         hermes = pwd.getpwnam("hermes")
         HERMES_HOME.mkdir(mode=0o750, parents=True, exist_ok=True)
@@ -121,54 +105,120 @@ def write_config(raw: str) -> None:
                 os.fsync(stream.fileno())
             os.chown(temporary, hermes.pw_uid, hermes.pw_gid)
             os.chmod(temporary, 0o640)
-            os.replace(temporary, HERMES_HOME / "config.yaml")
+            os.replace(temporary, CONFIG_PATH)
         except BaseException:
             temporary.unlink(missing_ok=True)
             raise
     except OSError:
-        fail("could not atomically write /opt/data/config.yaml")
+        fail("could not atomically write native /opt/data/config.yaml")
 
 
-def remove_legacy_options(options: dict[str, Any], raw_config: str) -> None:
-    if not (LEGACY_OPTIONS & options.keys()):
-        return
+def supervisor_post(path: str, payload: dict[str, Any]) -> bool:
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
-        print("[ha-options] WARNING: obsolete options remain because SUPERVISOR_TOKEN is unavailable", file=sys.stderr)
-        return
-    payload = json.dumps({"options": {"config_yaml": raw_config}}).encode("utf-8")
+        print("[ha-config-sync] WARNING: SUPERVISOR_TOKEN is unavailable", file=sys.stderr)
+        return False
     request = urllib.request.Request(
-        "http://supervisor/addons/self/options",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        f"http://supervisor{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            if not 200 <= response.status < 300:
-                raise urllib.error.HTTPError(request.full_url, response.status, "", response.headers, None)
+            return 200 <= response.status < 300
     except (OSError, urllib.error.HTTPError):
-        print("[ha-options] WARNING: could not remove obsolete Home Assistant options; retrying next startup", file=sys.stderr)
-        return
-    print("[ha-options] Removed obsolete Home Assistant options")
+        return False
+
+
+def mirror_native_to_options(raw: str) -> bool:
+    if not supervisor_post("/addons/self/options", {"options": {"config_yaml": raw}}):
+        print("[ha-config-sync] WARNING: could not mirror native config to Home Assistant options", file=sys.stderr)
+        return False
+    print("[ha-config-sync] Mirrored native /opt/data/config.yaml to Home Assistant options")
+    return True
+
+
+def request_restart() -> bool:
+    if not supervisor_post("/addons/self/restart", {}):
+        print("[ha-config-sync] ERROR: native config was updated but Supervisor restart request failed", file=sys.stderr)
+        return False
+    print("[ha-config-sync] Home Assistant config_yaml changed; requested Supervisor-managed restart")
+    return True
+
+
+def digest(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def startup() -> None:
+    """Run after upstream Hermes initialization has seeded native state."""
+    raw = read_native_config()
+    if not mirror_native_to_options(raw):
+        fail("could not mirror native /opt/data/config.yaml to Home Assistant options")
+    print("[ha-config-sync] Validated native /opt/data/config.yaml after Hermes initialization")
+
+
+def watch() -> None:
+    source = options_path()
+    native = read_native_config()
+    native_hash = digest(native)
+    expected_option_hash = native_hash
+    settle_until = time.monotonic() + MIRROR_SETTLE_SECONDS
+    restart_pending = False
+    print("[ha-config-sync] Watching native config and Home Assistant config_yaml")
+
+    while True:
+        time.sleep(POLL_SECONDS)
+        try:
+            current_native = read_native_config()
+            current_option = option_config(load_options(source))
+        except SystemExit:
+            # Native state is authoritative. Do not overwrite malformed direct
+            # edits from the mirror; Hermes will surface them in its own logs.
+            continue
+
+        current_native_hash = digest(current_native)
+        current_option_hash = digest(current_option)
+        if restart_pending:
+            if request_restart():
+                return
+            continue
+        if current_native_hash != native_hash:
+            if mirror_native_to_options(current_native):
+                native_hash = current_native_hash
+                expected_option_hash = current_native_hash
+                settle_until = time.monotonic() + MIRROR_SETTLE_SECONDS
+            continue
+
+        if current_option_hash == expected_option_hash or time.monotonic() < settle_until:
+            continue
+        try:
+            validate_config(current_option)
+        except SystemExit:
+            if mirror_native_to_options(current_native):
+                expected_option_hash = native_hash
+                settle_until = time.monotonic() + MIRROR_SETTLE_SECONDS
+            continue
+
+        write_native_config(current_option)
+        native_hash = digest(current_option)
+        expected_option_hash = native_hash
+        restart_pending = True
+        # Stop after a successful request so this process cannot create a
+        # second restart loop while Supervisor stops the app.
+        if request_restart():
+            return
+        settle_until = time.monotonic() + MIRROR_SETTLE_SECONDS
 
 
 def main() -> None:
-    source = options_path()
-    options = load_options(source)
-    configured = options.get("config_yaml")
-    if configured is not None and not isinstance(configured, str):
-        fail("config_yaml must be a string")
-    raw_config = legacy_config_yaml(options, configured)
-    if not isinstance(raw_config, str):
-        fail("config_yaml must be a string")
-    validate_config(raw_config)
-    write_config(raw_config)
-    remove_legacy_options(options, raw_config)
-    print("[ha-options] Validated config_yaml and wrote /opt/data/config.yaml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--watch", action="store_true")
+    if parser.parse_args().watch:
+        watch()
+    else:
+        startup()
 
 
 if __name__ == "__main__":

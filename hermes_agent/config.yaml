@@ -1,5 +1,5 @@
 name: Hermes Agent
-version: "2026.9.21-4"
+version: "2026.9.21-5"
 slug: hermes_agent
 description: Run Hermes Agent as a Home Assistant add-on using the official Hermes image.
 url: https://github.com/NousResearch/hermes-agent
@@ -12,7 +12,11 @@ init: false
 hassio_api: true
 hassio_role: manager
 homeassistant_api: false
-webui: "http://[HOST]:[PORT:9119]/"
+ingress: true
+ingress_port: 9119
+ingress_stream: true
+panel_title: Hermes Agent
+panel_icon: mdi:robot-outline
 map:
   - type: data
     path: /opt/data
@@ -20,16 +24,14 @@ environment:
   HERMES_GATEWAY_BOOTSTRAP_STATE: "running"
   HERMES_DASHBOARD: "1"
   HERMES_DASHBOARD_HOST: "0.0.0.0"
-  HERMES_DASHBOARD_PORT: "9119"
+  HERMES_DASHBOARD_PORT: "9120"
   API_SERVER_ENABLED: "true"
   API_SERVER_HOST: "0.0.0.0"
   API_SERVER_PORT: "8642"
 ports:
   8642/tcp: 8642
-  9119/tcp: 9119
 ports_description:
   8642/tcp: Hermes OpenAI-compatible API
-  9119/tcp: Hermes dashboard
 options:
   config_yaml: |
     {}

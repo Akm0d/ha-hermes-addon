@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Translate Supervisor ingress path metadata for Hermes' native dashboard."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+from collections.abc import Iterable
+
+from aiohttp import ClientSession, WSMsgType, web
+from multidict import CIMultiDict
+
+
+UPSTREAM_HOST = "127.0.0.1"
+UPSTREAM_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9120"))
+HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
+
+
+def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
+    for name, value in headers:
+        if name.lower() == "x-ingress-path":
+            if value.startswith("/") and not any(character.isspace() for character in value):
+                return value.rstrip("/")
+            return None
+    return None
+
+
+def upstream_headers(request: web.Request) -> dict[str, str]:
+    headers = {name: value for name, value in request.headers.items() if name.lower() not in HOP_HEADERS | {"host"}}
+    if prefix := ingress_prefix(request.headers.items()):
+        headers["X-Forwarded-Prefix"] = prefix
+    return headers
+
+
+def upstream_url(request: web.Request) -> str:
+    suffix = request.match_info.get("path", "")
+    query = f"?{request.query_string}" if request.query_string else ""
+    return f"http://{UPSTREAM_HOST}:{UPSTREAM_PORT}/{suffix}{query}"
+
+
+def rewrite_html(body: bytes, prefix: str | None) -> bytes:
+    """Keep login-page root-relative links beneath the Supervisor ingress path."""
+    if not prefix:
+        return body
+    text = body.decode("utf-8")
+
+    def add_prefix(match: re.Match[str]) -> str:
+        quote, path = match.groups()
+        return match.group(0) if path.startswith(prefix + "/") else f"{quote}{prefix}{path}"
+
+    text = re.sub(r"([\"'])(/(?!/)[^\"']*)", add_prefix, text)
+
+    def add_css_prefix(match: re.Match[str]) -> str:
+        quote, path = match.groups()
+        return match.group(0) if path.startswith(prefix + "/") else f"url({quote}{prefix}{path}"
+
+    text = re.sub(r"url\((['\"]?)(/(?!/)[^)'\"]*)", add_css_prefix, text)
+    return text.encode("utf-8")
+
+
+async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
+    protocols = [value.strip() for value in request.headers.get("Sec-WebSocket-Protocol", "").split(",") if value.strip()]
+    downstream = web.WebSocketResponse(protocols=protocols, autoping=False, autoclose=False)
+    await downstream.prepare(request)
+    async with ClientSession() as session, session.ws_connect(
+        upstream_url(request), headers=upstream_headers(request), protocols=protocols, autoping=False, autoclose=False
+    ) as upstream:
+        async def forward(source, destination) -> None:
+            async for message in source:
+                if message.type is WSMsgType.TEXT:
+                    await destination.send_str(message.data)
+                elif message.type is WSMsgType.BINARY:
+                    await destination.send_bytes(message.data)
+                elif message.type is WSMsgType.PING:
+                    await destination.ping(message.data)
+                elif message.type is WSMsgType.PONG:
+                    await destination.pong(message.data)
+                else:
+                    await destination.close()
+                    return
+
+        await asyncio.wait(
+            [asyncio.create_task(forward(downstream, upstream)), asyncio.create_task(forward(upstream, downstream))],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    return downstream
+
+
+async def proxy(request: web.Request) -> web.StreamResponse:
+    if request.headers.get("Upgrade", "").lower() == "websocket":
+        return await websocket_proxy(request)
+    async with ClientSession() as session, session.request(
+        request.method, upstream_url(request), headers=upstream_headers(request), data=request.content.iter_any(), allow_redirects=False
+    ) as upstream:
+        headers = CIMultiDict(
+            (name, value) for name, value in upstream.headers.items() if name.lower() not in HOP_HEADERS | {"content-length"}
+        )
+        if upstream.content_type == "text/html":
+            body = rewrite_html(await upstream.read(), ingress_prefix(request.headers.items()))
+            return web.Response(status=upstream.status, headers=headers, body=body)
+        response = web.StreamResponse(status=upstream.status, headers=headers)
+        await response.prepare(request)
+        async for chunk in upstream.content.iter_any():
+            await response.write(chunk)
+        await response.write_eof()
+        return response
+
+
+app = web.Application()
+app.router.add_route("*", "/{path:.*}", proxy)
+
+if __name__ == "__main__":
+    web.run_app(app, host="0.0.0.0", port=9119, print=None)

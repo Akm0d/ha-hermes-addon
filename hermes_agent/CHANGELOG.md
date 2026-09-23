@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.9.21-5
+
+- Make native `/opt/data/config.yaml` authoritative and mirror it to the single Home Assistant `config_yaml` editor.
+- Use Home Assistant ingress for the dashboard; retain only TCP port `8642` as a host-exposed API port.
+
 ## 2026.9.21-4
 
 - Make `config_yaml` the only Home Assistant option; remove the Home Assistant CLI toggle and option-change watcher.
