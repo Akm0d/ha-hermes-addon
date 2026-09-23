@@ -1,1 +1,111 @@
-# paste the workflow above here
+name: Update Hermes stable release
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update-hermes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get latest stable Hermes release
+        id: hermes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="$(
+            curl -fsSL \
+              https://api.github.com/repos/NousResearch/hermes-agent/releases/latest \
+              | jq -r '.tag_name'
+          )"
+
+          if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+            echo "Could not determine latest Hermes release"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest stable Hermes release: $TAG"
+
+      - name: Check current version
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.hermes.outputs.tag }}"
+
+          CURRENT="$(
+            sed -n \
+              's|^FROM nousresearch/hermes-agent:\(.*\)$|\1|p' \
+              hermes_agent/Dockerfile
+          )"
+
+          echo "Current: $CURRENT"
+          echo "Latest:  $TAG"
+
+          if [[ "$CURRENT" == "$TAG" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify Hermes Docker image exists
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.hermes.outputs.tag }}"
+
+          docker manifest inspect \
+            "nousresearch/hermes-agent:${TAG}" \
+            >/dev/null
+
+      - name: Update Hermes version
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.hermes.outputs.tag }}"
+          VERSION="${TAG#v}"
+          ADDON_VERSION="${VERSION}-1"
+
+          sed -i \
+            "s|^FROM nousresearch/hermes-agent:.*$|FROM nousresearch/hermes-agent:${TAG}|" \
+            hermes_agent/Dockerfile
+
+          sed -i \
+            "s|^version: .*$|version: \"${ADDON_VERSION}\"|" \
+            hermes_agent/config.yaml
+
+          git diff --check
+          git diff
+
+      - name: Commit and push
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.hermes.outputs.tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            hermes_agent/Dockerfile \
+            hermes_agent/config.yaml
+
+          git commit -m "Update Hermes to ${TAG}"
+          git push
