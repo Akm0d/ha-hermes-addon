@@ -15,6 +15,7 @@ from multidict import CIMultiDict
 UPSTREAM_HOST = "127.0.0.1"
 UPSTREAM_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9120"))
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
+PROXY_CONTROL_HEADERS = {"host", "x-ingress-path", "x-forwarded-prefix"}
 
 
 def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
@@ -27,7 +28,9 @@ def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
 
 
 def upstream_headers(request: web.Request) -> dict[str, str]:
-    headers = {name: value for name, value in request.headers.items() if name.lower() not in HOP_HEADERS | {"host"}}
+    # Supervisor supplies X-Ingress-Path. Hermes understands X-Forwarded-Prefix,
+    # so consume the former rather than forwarding both prefix mechanisms.
+    headers = {name: value for name, value in request.headers.items() if name.lower() not in HOP_HEADERS | PROXY_CONTROL_HEADERS}
     if prefix := ingress_prefix(request.headers.items()):
         headers["X-Forwarded-Prefix"] = prefix
     return headers
@@ -45,15 +48,18 @@ def rewrite_html(body: bytes, prefix: str | None) -> bytes:
         return body
     text = body.decode("utf-8")
 
+    def has_prefix(path: str) -> bool:
+        return path == prefix or path.startswith(prefix + "/")
+
     def add_prefix(match: re.Match[str]) -> str:
         quote, path = match.groups()
-        return match.group(0) if path.startswith(prefix + "/") else f"{quote}{prefix}{path}"
+        return match.group(0) if has_prefix(path) else f"{quote}{prefix}{path}"
 
     text = re.sub(r"([\"'])(/(?!/)[^\"']*)", add_prefix, text)
 
     def add_css_prefix(match: re.Match[str]) -> str:
         quote, path = match.groups()
-        return match.group(0) if path.startswith(prefix + "/") else f"url({quote}{prefix}{path}"
+        return match.group(0) if has_prefix(path) else f"url({quote}{prefix}{path}"
 
     text = re.sub(r"url\((['\"]?)(/(?!/)[^)'\"]*)", add_css_prefix, text)
     return text.encode("utf-8")
@@ -107,8 +113,13 @@ async def proxy(request: web.Request) -> web.StreamResponse:
         return response
 
 
-app = web.Application()
-app.router.add_route("*", "/{path:.*}", proxy)
+def create_app() -> web.Application:
+    application = web.Application()
+    application.router.add_route("*", "/{path:.*}", proxy)
+    return application
+
+
+app = create_app()
 
 if __name__ == "__main__":
     web.run_app(app, host="0.0.0.0", port=9119, print=None)
