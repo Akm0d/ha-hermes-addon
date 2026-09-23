@@ -21,12 +21,8 @@ class HaOptionsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.home = Path(self.temporary.name) / "data"
-        self.real_ha = Path(self.temporary.name) / "ha"
-        self.real_ha.write_text("#!/bin/sh\n", encoding="utf-8")
-        self.real_ha.chmod(0o755)
         self.patches = [
             patch.object(ha_options, "HERMES_HOME", self.home),
-            patch.object(ha_options, "REAL_HA", self.real_ha),
             patch.object(
                 ha_options.pwd,
                 "getpwnam",
@@ -56,9 +52,76 @@ class HaOptionsTest(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(SystemExit):
                 ha_options.validate_config(raw)
 
-    def test_cli_gate_removes_execute_access_when_disabled_and_restores_it_when_enabled(self) -> None:
-        ha_options.apply_ha_cli_gate(False)
-        self.assertEqual(stat.S_IMODE(self.real_ha.stat().st_mode), 0o700)
+    def test_options_path_uses_the_custom_data_mount_when_present(self) -> None:
+        options = self.home / "options.json"
+        self.home.mkdir()
+        options.write_text("{}", encoding="utf-8")
+        with patch.object(ha_options, "STANDARD_OPTIONS", Path("/missing/options.json")), patch.object(
+            ha_options, "MAPPED_OPTIONS", options
+        ):
+            self.assertEqual(ha_options.options_path(), options)
 
-        ha_options.apply_ha_cli_gate(True)
-        self.assertEqual(stat.S_IMODE(self.real_ha.stat().st_mode), 0o755)
+class LegacyOptionsTest(unittest.TestCase):
+    def test_empty_native_yaml_migrates_verified_legacy_model_settings_once(self) -> None:
+        migrated = ha_options.legacy_config_yaml(
+            {
+                "model_provider": "custom",
+                "model_name": "local-model",
+                "model_base_url": "http://example/v1",
+            },
+            "{}\n",
+        )
+
+        self.assertEqual(
+            ha_options.yaml.safe_load(migrated),
+            {
+                "model": {
+                    "provider": "custom",
+                    "default": "local-model",
+                    "base_url": "http://example/v1",
+                }
+            },
+        )
+
+    def test_nonempty_native_yaml_wins_over_legacy_model_settings(self) -> None:
+        raw = "model:\n  default: user-choice\n"
+
+        self.assertEqual(
+            ha_options.legacy_config_yaml({"model_name": "legacy-choice"}, raw),
+            raw,
+        )
+
+    def test_legacy_options_are_replaced_by_the_single_native_option(self) -> None:
+        request_details: dict[str, object] = {}
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
+
+        def fake_urlopen(request, timeout):
+            request_details["url"] = request.full_url
+            request_details["body"] = request.data
+            request_details["authorization"] = request.get_header("Authorization")
+            request_details["timeout"] = timeout
+            return Response()
+
+        with patch.dict(os.environ, {"SUPERVISOR_TOKEN": "test-token"}, clear=False), patch.object(
+            ha_options.urllib.request, "urlopen", fake_urlopen
+        ):
+            ha_options.remove_legacy_options(
+                {"model_name": "legacy-model", "enable_terminal": True},
+                "model:\n  default: legacy-model\n",
+            )
+
+        self.assertEqual(request_details["url"], "http://supervisor/addons/self/options")
+        self.assertEqual(request_details["timeout"], 10)
+        self.assertEqual(request_details["authorization"], "Bearer test-token")
+        self.assertEqual(
+            ha_options.json.loads(request_details["body"]),
+            {"options": {"config_yaml": "model:\n  default: legacy-model\n"}},
+        )

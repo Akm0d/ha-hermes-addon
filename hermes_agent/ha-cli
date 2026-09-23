@@ -3,11 +3,6 @@ set -eu
 
 REAL_HA=/usr/local/lib/hermes-ha-cli/ha
 
-if [ ! -x "$REAL_HA" ]; then
-    echo "Home Assistant CLI access is disabled by enable_ha_cli." >&2
-    exit 126
-fi
-
 # The official CLI calls its token variable SUPERVISOR_API_TOKEN; Home
 # Assistant injects SUPERVISOR_TOKEN into apps that request hassio_api.
 export SUPERVISOR_API_TOKEN="${SUPERVISOR_TOKEN:?SUPERVISOR_TOKEN is unavailable}"

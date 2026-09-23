@@ -32,7 +32,7 @@ GitHub repository:
 - The Hermes OpenAI-compatible API is exposed on TCP port `8642`
 - The Hermes dashboard is exposed directly on TCP port `9119`; there is no Home Assistant ingress or web terminal
 - Native Hermes configuration is provided as one raw `config_yaml` option and becomes `/opt/data/config.yaml` at startup
-- `enable_ha_cli` is an execution gate for the official Home Assistant CLI; it does not revoke the manifest-granted Supervisor token
+- The official Home Assistant CLI is available to Hermes with the manifest's narrowly scoped Supervisor permissions; no second token is stored
 
 ## Add-on docs
 

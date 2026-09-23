@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.9.21-4
+
+- Make `config_yaml` the only Home Assistant option; remove the Home Assistant CLI toggle and option-change watcher.
+- Keep the official Home Assistant CLI always available with the manifest's manager-level Supervisor access.
+- Migrate obsolete persisted options once into the single native configuration document where their model values are known, then remove the obsolete options through the Supervisor API.
+
 ## 2026.9.21-3
 
 - Enable the upstream s6-supervised Hermes dashboard on TCP port `9119` and configure the OpenAI-compatible API on TCP port `8642`.

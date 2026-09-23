@@ -13,7 +13,6 @@ COPY --from=ha_cli /usr/bin/ha /usr/local/lib/hermes-ha-cli/ha
 COPY --chmod=0755 ha-options.py /usr/local/lib/hermes-ha-options.py
 COPY --chmod=0755 ha-cli /opt/hermes/bin/ha
 COPY --chmod=0755 00-ha-options /etc/cont-init.d/00-ha-options
-COPY --chmod=0755 ha-options-watch /etc/services.d/hermes-ha-options-watch/run
 
 LABEL \
   io.hass.version="${BUILD_VERSION}" \

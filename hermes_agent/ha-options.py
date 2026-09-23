@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Apply the two Home Assistant options before Hermes' own cont-init hook."""
+"""Materialize the one Home Assistant option before Hermes' cont-init hook."""
 
 from __future__ import annotations
 
+import json
 import os
 import pwd
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +19,22 @@ import yaml
 HERMES_HOME = Path("/opt/data")
 STANDARD_OPTIONS = Path("/data/options.json")
 MAPPED_OPTIONS = HERMES_HOME / "options.json"
-REAL_HA = Path("/usr/local/lib/hermes-ha-cli/ha")
-OPTIONS_PATH_RECORD = Path("/run/hermes-ha-options-path")
+LEGACY_OPTIONS = frozenset(
+    {
+        "enable_ha_cli",
+        "timezone",
+        "model_provider",
+        "model_name",
+        "model_base_url",
+        "openrouter_api_key",
+        "google_api_key",
+        "anthropic_api_key",
+        "openai_api_key",
+        "enable_dashboard_tui",
+        "enable_terminal",
+        "gateway_timeout",
+    }
+)
 
 
 def fail(message: str) -> None:
@@ -36,23 +53,20 @@ def options_path() -> Path:
     standard_exists = STANDARD_OPTIONS.is_file()
     mapped_exists = MAPPED_OPTIONS.is_file()
     if standard_exists and mapped_exists and not same_file(STANDARD_OPTIONS, MAPPED_OPTIONS):
-        fail("found conflicting Home Assistant options files at /data/options.json and /opt/data/options.json")
+        fail("found conflicting Home Assistant options files")
     if standard_exists:
         return STANDARD_OPTIONS
-    if mapped_exists:
+    if MAPPED_OPTIONS.is_file():
         return MAPPED_OPTIONS
-    fail("Home Assistant options.json was not found at /data/options.json or /opt/data/options.json")
+    fail("Home Assistant options.json was not found")
 
 
 def load_options(path: Path) -> dict[str, Any]:
     try:
-        import json
-
         loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         fail("could not read Home Assistant options.json")
-    if not isinstance(loaded, dict):
-        fail("Home Assistant options.json must contain an object")
+    require_mapping(loaded, "Home Assistant options.json must contain an object")
     return loaded
 
 
@@ -61,8 +75,35 @@ def validate_config(raw: str) -> None:
         loaded = yaml.safe_load(raw)
     except yaml.YAMLError:
         fail("config_yaml must be valid YAML with a mapping at its document root")
-    if not isinstance(loaded, dict):
-        fail("config_yaml must be valid YAML with a mapping at its document root")
+    require_mapping(loaded, "config_yaml must be valid YAML with a mapping at its document root")
+
+
+def require_mapping(value: Any, message: str) -> None:
+    if not isinstance(value, dict):
+        fail(message)
+
+
+def legacy_config_yaml(options: dict[str, Any], raw: str | None) -> str:
+    """Preserve verified legacy model settings only when native YAML is empty."""
+    if raw is not None:
+        try:
+            if yaml.safe_load(raw) != {}:
+                return raw
+        except yaml.YAMLError:
+            return raw
+
+    model: dict[str, str] = {}
+    for old_key, native_key in (
+        ("model_provider", "provider"),
+        ("model_name", "default"),
+        ("model_base_url", "base_url"),
+    ):
+        value = options.get(old_key)
+        if isinstance(value, str) and value.strip():
+            model[native_key] = value.strip()
+    if not model:
+        return raw if raw is not None else "{}\n"
+    return yaml.safe_dump({"model": model}, sort_keys=False, allow_unicode=False)
 
 
 def write_config(raw: str) -> None:
@@ -88,32 +129,46 @@ def write_config(raw: str) -> None:
         fail("could not atomically write /opt/data/config.yaml")
 
 
-def apply_ha_cli_gate(enabled: bool) -> None:
-    if not REAL_HA.is_file():
-        fail("the bundled Home Assistant CLI is missing")
-    if enabled:
-        os.chmod(REAL_HA, 0o755)
-    else:
-        # Hermes runs as the non-root hermes user, so mode 0700 prevents both
-        # PATH and absolute-path execution while retaining a root-only binary.
-        os.chmod(REAL_HA, 0o700)
+def remove_legacy_options(options: dict[str, Any], raw_config: str) -> None:
+    if not (LEGACY_OPTIONS & options.keys()):
+        return
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        print("[ha-options] WARNING: obsolete options remain because SUPERVISOR_TOKEN is unavailable", file=sys.stderr)
+        return
+    payload = json.dumps({"options": {"config_yaml": raw_config}}).encode("utf-8")
+    request = urllib.request.Request(
+        "http://supervisor/addons/self/options",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if not 200 <= response.status < 300:
+                raise urllib.error.HTTPError(request.full_url, response.status, "", response.headers, None)
+    except (OSError, urllib.error.HTTPError):
+        print("[ha-options] WARNING: could not remove obsolete Home Assistant options; retrying next startup", file=sys.stderr)
+        return
+    print("[ha-options] Removed obsolete Home Assistant options")
 
 
 def main() -> None:
     source = options_path()
     options = load_options(source)
-    enabled = options.get("enable_ha_cli", False)
-    raw_config = options.get("config_yaml", "{}")
-    if not isinstance(enabled, bool):
-        fail("enable_ha_cli must be a boolean")
+    configured = options.get("config_yaml")
+    if configured is not None and not isinstance(configured, str):
+        fail("config_yaml must be a string")
+    raw_config = legacy_config_yaml(options, configured)
     if not isinstance(raw_config, str):
         fail("config_yaml must be a string")
     validate_config(raw_config)
     write_config(raw_config)
-    apply_ha_cli_gate(enabled)
-    OPTIONS_PATH_RECORD.write_text(f"{source}\n", encoding="utf-8")
-    os.chmod(OPTIONS_PATH_RECORD, 0o600)
-    print(f"[ha-options] Applied config_yaml and {'enabled' if enabled else 'disabled'} the Home Assistant CLI")
+    remove_legacy_options(options, raw_config)
+    print("[ha-options] Validated config_yaml and wrote /opt/data/config.yaml")
 
 
 if __name__ == "__main__":
