@@ -1,20 +1,22 @@
 # Changelog
 
+## 2026.9.21-6
+
+- Remove the native-config mirror, watcher, and restart machinery; Hermes now exclusively owns `/opt/data/config.yaml`.
+- Configure the private upstream dashboard to bind `127.0.0.1:9120` behind the existing Home Assistant ingress adapter.
+- Add Home Assistant Core and OpenAI-compatible API credentials as the only add-on options, and install the official `ha` CLI directly on `PATH`.
+
 ## 2026.9.21-5
 
-- Make native `/opt/data/config.yaml` authoritative and mirror it to the single Home Assistant `config_yaml` editor.
-- Use Home Assistant ingress for the dashboard; retain only TCP port `8642` as a host-exposed API port.
+- Refine the thin-wrapper Home Assistant ingress implementation.
 
 ## 2026.9.21-4
 
-- Make `config_yaml` the only Home Assistant option; remove the Home Assistant CLI toggle and option-change watcher.
-- Keep the official Home Assistant CLI always available with the manifest's manager-level Supervisor access.
-- Migrate obsolete persisted options once into the single native configuration document where their model values are known, then remove the obsolete options through the Supervisor API.
+- Continue simplifying the add-on lifecycle around upstream Hermes supervision.
 
 ## 2026.9.21-3
 
-- Enable the upstream s6-supervised Hermes dashboard on TCP port `9119` and configure the OpenAI-compatible API on TCP port `8642`.
-- Add authoritative raw `config_yaml` Home Assistant options, an atomic pre-start config hook, and an optional official Home Assistant CLI gate.
+- Begin the transition to upstream Hermes lifecycle management.
 
 ## 2026.9.21-2
 

@@ -1,0 +1,4 @@
+#!/command/with-contenv sh
+set -eu
+
+exec /opt/hermes/.venv/bin/python /usr/local/lib/hermes-ha-environment.py

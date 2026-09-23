@@ -1,4 +1,10 @@
 configuration:
-  config_yaml:
-    name: Hermes configuration YAML
-    description: Native Hermes config.yaml. This editor reflects /opt/data/config.yaml; saving changes updates the native file and restarts Hermes.
+  hass_url:
+    name: Home Assistant URL
+    description: Optional Home Assistant Core base URL. Leave blank to use Hermes' upstream default (http://homeassistant.local:8123).
+  hass_token:
+    name: Home Assistant Long-Lived Access Token
+    description: Used only by Hermes' native Home Assistant integration.
+  api_server_key:
+    name: OpenAI-compatible API key
+    description: Required bearer key for clients connecting to Hermes on port 8642.

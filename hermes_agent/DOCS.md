@@ -20,46 +20,29 @@ Home Assistant's persistent add-on data mount is provided at `/opt/data`, Hermes
 
 ## Home Assistant options
 
-The Configuration page intentionally has one option:
+The Configuration page has only the integration-specific settings below. It does not expose Hermes runtime configuration. Hermes exclusively owns `/opt/data/config.yaml` and all other state under `/opt/data`.
 
-- `config_yaml`: the native Hermes `config.yaml` editor.
+- `hass_token`: a Home Assistant Long-Lived Access Token for Hermes' native Home Assistant integration. It becomes `HASS_TOKEN` only in the container runtime environment.
+- `hass_url`: an optional Home Assistant Core base URL. It becomes `HASS_URL` when configured. Leave it blank to retain Hermes' upstream default, `http://homeassistant.local:8123`; use only a base URL, not `/api` or an ingress URL.
+- `api_server_key`: the required bearer key for OpenAI-compatible clients. It becomes `API_SERVER_KEY`; startup fails without it.
 
-`/opt/data/config.yaml` is authoritative. Upstream Hermes initializes it first; the add-on then validates its mapping root and mirrors its exact contents to `config_yaml`. Startup never overwrites the native file from Home Assistant options.
+These credentials are separate. The add-on does not log or persist them in Hermes state. `SUPERVISOR_TOKEN` is injected by Supervisor and is neither an add-on option nor a replacement for `HASS_TOKEN` or `API_SERVER_KEY`.
 
-While running, a small inherited-s6 service compares content hashes. A changed native file is mirrored to Home Assistant without a restart. A changed, valid Home Assistant option is atomically written to the native file, then requests one Supervisor-managed app restart and exits. The restart request is never made for native-to-option mirroring, preventing feedback loops.
-
-The initial native-to-option mirror replaces persisted options with only `config_yaml`, removing obsolete legacy keys without translating them.
-
-Example raw `config_yaml`:
-
-```yaml
-model:
-  provider: custom
-  default: my-model
-  base_url: http://example/v1
-
-dashboard:
-  basic_auth:
-    username: admin
-    password: CHANGE_ME
-    secret: CHANGE_ME_TO_A_LONG_RANDOM_SECRET
-```
-
-Use Hermes' native dashboard authentication configuration. When the dashboard binds to `0.0.0.0`, Hermes enforces its own authentication policy; invalid configuration is reported in the add-on log.
+The values are materialized only during add-on startup. Restart the add-on after changing them if Supervisor has not already restarted it.
 
 ## Access
 
 - Home Assistant's Open Web UI opens the normal Home Assistant ingress panel for Hermes, under the Home Assistant origin.
-- Open WebUI and other compatible clients should use TCP port `8642` for the OpenAI-compatible API.
-- The add-on does not create an API secret; Hermes' native authentication behavior remains in effect.
+- Open WebUI and other compatible clients use TCP port `8642` with the configured `api_server_key`.
+- The dashboard has no separate Hermes authentication because it is private to the container. Home Assistant ingress is the browser authentication boundary.
 
-Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on private port `9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Port `9119` is not exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
+Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
 
 ## Home Assistant CLI
 
-The manifest requests the static Supervisor permissions `hassio_api: true` and `hassio_role: manager`. The official `ha` executable is always available to Hermes and uses the injected `SUPERVISOR_TOKEN` with the `supervisor` endpoint.
+The manifest requests the static Supervisor permissions `hassio_api: true` and `hassio_role: manager`. The official `ha` executable is installed at `/usr/local/bin/ha` and uses Supervisor's injected `SUPERVISOR_TOKEN` with the `supervisor` endpoint.
 
-The add-on maps that token into the CLI's runtime token variable only; it never creates, copies, logs, or persists another Supervisor token. `homeassistant_api` remains disabled because the requested commands use the Supervisor endpoint, not the Home Assistant Core API proxy.
+The add-on never creates, copies, logs, or persists another Supervisor token. `homeassistant_api` remains disabled because the requested commands use the Supervisor endpoint, not the Home Assistant Core API proxy.
 
 `ha supervisor info` must be verified in a real Home Assistant OS environment. A normal Docker container does not provide the Supervisor endpoint or token.
 
@@ -69,5 +52,5 @@ If you want the full upstream setup flow, install notes, and provider details, s
 
 - This add-on pins Hermes to `v2026.9.21`.
 - Supported Home Assistant architectures are `amd64` and `aarch64`.
-- There is no web terminal, model/provider option, API-key option, nginx, or direct host exposure for the dashboard.
+- There is no web terminal, model/provider configuration, nginx, direct dashboard host exposure, configuration synchronizer, or custom process supervisor.
 - The official Home Assistant CLI is copied from the pinned `ghcr.io/home-assistant/<arch>-hassio-cli:2026.09.0` image at build time.

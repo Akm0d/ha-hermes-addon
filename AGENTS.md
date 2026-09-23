@@ -19,7 +19,7 @@
 - The OpenAI-compatible API is exposed directly on TCP port `8642`; the dashboard is reached through Home Assistant ingress on container port `9119` via a focused prefix adapter, with no nginx or web terminal.
 
 ## Editing rules for this repo
-- Home Assistant options remain limited to raw `config_yaml`; do not add translated model, provider, API-key, or other Hermes runtime configuration fields.
+- Home Assistant options are limited to Home Assistant integration and API credentials (`hass_url`, `hass_token`, and `api_server_key`); do not add translated model, provider, or other Hermes runtime configuration fields.
 - If add-on behavior or its exposed port changes, update `hermes_agent/DOCS.md`.
 
 ## Verification
