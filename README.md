@@ -24,6 +24,7 @@ GitHub repository:
 2. Start the add-on and check its log for gateway and dashboard startup.
 3. Use the add-on Open Web UI button for the Hermes dashboard through Home Assistant ingress.
 4. Configure Open WebUI to use TCP port `8642` and the configured API key.
+5. Use the dashboard's **Terminal** tab for interactive Hermes setup and container administration.
 
 ## Notes
 
@@ -33,6 +34,7 @@ GitHub repository:
 - The Hermes dashboard is available only through Home Assistant ingress; TCP port `9119` is not host-exposed
 - Hermes owns its native `/opt/data/config.yaml`; Home Assistant does not mirror or translate it
 - The official Home Assistant CLI is available to Hermes with the manifest's narrowly scoped Supervisor permissions; no second token is stored
+- Dashboard access intentionally grants interactive shell access to the Hermes container through the native terminal plugin
 
 ## Add-on docs
 

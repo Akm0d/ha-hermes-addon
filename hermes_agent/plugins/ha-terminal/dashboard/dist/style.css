@@ -1,0 +1,37 @@
+@import url("./xterm.css");
+
+.ha-terminal-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: min(78vh, 52rem);
+  min-height: 28rem;
+}
+
+.ha-terminal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ha-terminal-status {
+  flex: 1 1 14rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.8rem;
+}
+
+.ha-terminal-host {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: #000;
+  padding: 0.5rem;
+}
+
+.ha-terminal-host .xterm,
+.ha-terminal-host .xterm-screen,
+.ha-terminal-host .xterm-viewport {
+  height: 100%;
+}

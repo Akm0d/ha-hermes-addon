@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-7
+
+- Add the native `ha-terminal` Hermes dashboard plugin with an interactive PTY shell behind Home Assistant ingress.
+
 ## 2026.9.21-6
 
 - Remove the native-config mirror, watcher, and restart machinery; Hermes now exclusively owns `/opt/data/config.yaml`.

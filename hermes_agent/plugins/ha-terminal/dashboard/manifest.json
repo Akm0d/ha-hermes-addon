@@ -1,0 +1,14 @@
+{
+  "name": "ha-terminal",
+  "label": "Terminal",
+  "description": "Interactive shell inside the Hermes Home Assistant container",
+  "icon": "Terminal",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/ha-terminal",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}

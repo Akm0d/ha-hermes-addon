@@ -46,8 +46,9 @@ jobs:
 
           CURRENT="$(
             sed -n \
-              's|^FROM nousresearch/hermes-agent:\(.*\)$|\1|p' \
-              hermes_agent/Dockerfile
+              's|^FROM nousresearch/hermes-agent:\([^[:space:]]*\).*|\1|p' \
+              hermes_agent/Dockerfile \
+              | head -n1
           )"
 
           echo "Current: $CURRENT"
@@ -81,8 +82,8 @@ jobs:
           VERSION="${TAG#v}"
           ADDON_VERSION="${VERSION}-1"
 
-          sed -i \
-            "s|^FROM nousresearch/hermes-agent:.*$|FROM nousresearch/hermes-agent:${TAG}|" \
+          sed -E -i \
+            "s|^FROM nousresearch/hermes-agent:[^[:space:]]*|FROM nousresearch/hermes-agent:${TAG}|" \
             hermes_agent/Dockerfile
 
           sed -i \

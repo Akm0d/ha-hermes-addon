@@ -38,6 +38,16 @@ The values are materialized only during add-on startup. Restart the add-on after
 
 Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
 
+## Dashboard terminal
+
+The bundled `ha-terminal` dashboard plugin adds a normal **Terminal** navigation tab. It creates one interactive PTY-backed shell for each browser WebSocket session; it is not a separate listener or a command-execution REST API.
+
+The terminal connects through the existing dashboard/plugin WebSocket route, so Home Assistant ingress remains the sole browser access boundary. Anyone authorized to use this Hermes dashboard can run a shell inside this Hermes container. No additional terminal authentication is configured.
+
+The shell runs as the same `hermes` user as the upstream dashboard service, starts in `/opt/data`, and inherits the server-side container environment. This makes `hermes setup`, `hermes model`, and the installed `ha` CLI available without exposing `SUPERVISOR_TOKEN`, `HASS_TOKEN`, or `API_SERVER_KEY` to plugin JavaScript.
+
+The plugin uses Hermes' pinned xterm.js browser assets and its native `PtyBridge`; no terminal service port, nginx, ttyd, or runtime Node dependency is added. Closing the browser WebSocket terminates and reaps that shell's PTY process group.
+
 ## Home Assistant CLI
 
 The manifest requests the static Supervisor permissions `hassio_api: true` and `hassio_role: manager`. The official `ha` executable is installed at `/usr/local/bin/ha` and uses Supervisor's injected `SUPERVISOR_TOKEN` with the `supervisor` endpoint.
@@ -52,5 +62,5 @@ If you want the full upstream setup flow, install notes, and provider details, s
 
 - This add-on pins Hermes to `v2026.9.21`.
 - Supported Home Assistant architectures are `amd64` and `aarch64`.
-- There is no web terminal, model/provider configuration, nginx, direct dashboard host exposure, configuration synchronizer, or custom process supervisor.
+- There is no separate terminal service, model/provider configuration, nginx, direct dashboard host exposure, configuration synchronizer, or custom process supervisor.
 - The official Home Assistant CLI is copied from the pinned `ghcr.io/home-assistant/<arch>-hassio-cli:2026.09.0` image at build time.
