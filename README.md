@@ -21,7 +21,7 @@ Status:
 2. Go to `Settings -> Add-ons -> Add-on Store`.
 3. Open the three-dot menu and choose `Repositories`.
 4. Add this repository URL:
-   - `https://github.com/diegaccio/ha-hermes-addon`
+   - `https://github.com/akm0d/ha-hermes-addon`
 5. Refresh the Add-on Store if needed.
 6. Open the `Hermes Agent` add-on.
 7. Click `Install`.
