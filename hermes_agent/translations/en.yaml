@@ -1,0 +1,7 @@
+configuration:
+  enable_ha_cli:
+    name: Enable Home Assistant CLI
+    description: Allow Hermes to execute the official ha command with this app's Supervisor permissions.
+  config_yaml:
+    name: Hermes configuration YAML
+    description: Complete native Hermes config.yaml content. It replaces /opt/data/config.yaml at app startup.

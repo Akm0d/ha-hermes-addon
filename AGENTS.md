@@ -16,10 +16,10 @@
 - Supported Home Assistant architectures are only `amd64` and `aarch64`.
 - Home Assistant provides its persistent data mount at `/opt/data`, Hermes' normal Docker home (`HERMES_HOME`).
 - Hermes owns all state and runtime configuration under `/opt/data`; this add-on must not translate Home Assistant options into Hermes configuration.
-- The OpenAI-compatible API is exposed directly on TCP port `8642`; there is no ingress dashboard, nginx proxy, or web terminal.
+- The OpenAI-compatible API is exposed directly on TCP port `8642` and Hermes' native s6-supervised dashboard on TCP port `9119`; there is no ingress, nginx proxy, or web terminal.
 
 ## Editing rules for this repo
-- Do not add model, provider, API-key, or other Hermes runtime configuration to Home Assistant add-on options.
+- Home Assistant options remain limited to `enable_ha_cli` and raw `config_yaml`; do not add translated model, provider, API-key, or other Hermes runtime configuration fields.
 - If add-on behavior or its exposed port changes, update `hermes_agent/DOCS.md`.
 
 ## Verification

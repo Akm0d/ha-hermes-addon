@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.9.21-3
+
+- Enable the upstream s6-supervised Hermes dashboard on TCP port `9119` and configure the OpenAI-compatible API on TCP port `8642`.
+- Add authoritative raw `config_yaml` Home Assistant options, an atomic pre-start config hook, and an optional official Home Assistant CLI gate.
+
 ## 2026.9.21-2
 
 - Replace the custom startup, nginx ingress, and web-terminal stack with the official Hermes image startup path.

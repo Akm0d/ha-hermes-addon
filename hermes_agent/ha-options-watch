@@ -1,0 +1,26 @@
+#!/command/with-contenv sh
+set -eu
+
+OPTIONS_PATH_RECORD=/run/hermes-ha-options-path
+
+while [ ! -s "$OPTIONS_PATH_RECORD" ]; do
+    sleep 1
+done
+
+OPTIONS_FILE=$(cat "$OPTIONS_PATH_RECORD")
+last_checksum=$(sha256sum "$OPTIONS_FILE" | awk '{print $1}')
+
+while sleep 5; do
+    [ -f "$OPTIONS_FILE" ] || continue
+    checksum=$(sha256sum "$OPTIONS_FILE" | awk '{print $1}')
+    [ "$checksum" = "$last_checksum" ] && continue
+    last_checksum=$checksum
+
+    if curl --fail --silent --show-error --request POST \
+        --header "Authorization: Bearer ${SUPERVISOR_TOKEN:?SUPERVISOR_TOKEN is unavailable}" \
+        http://supervisor/addons/self/restart >/dev/null; then
+        echo "[ha-options-watch] Home Assistant options changed; requested Supervisor-managed restart"
+    else
+        echo "[ha-options-watch] WARNING: options changed but Supervisor restart request failed" >&2
+    fi
+done

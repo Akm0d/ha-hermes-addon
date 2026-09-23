@@ -20,18 +20,19 @@ GitHub repository:
 
 ## First start
 
-1. Configure Hermes directly under its persistent home, `/opt/data`, following the upstream Hermes documentation.
-2. Start the add-on.
-3. Check the add-on log for Hermes gateway startup.
-4. Configure Open WebUI to reach the Home Assistant host on TCP port `8642`.
+1. Open the add-on Configuration page and edit the native Hermes YAML in `config_yaml`.
+2. Start the add-on and check its log for gateway and dashboard startup.
+3. Use the add-on Open Web UI button for the Hermes dashboard on TCP port `9119`.
+4. Configure Open WebUI to use TCP port `8642` for Hermes' OpenAI-compatible API.
 
 ## Notes
 
 - Supported architectures: `amd64`, `aarch64`
 - Hermes state is stored in Home Assistant's persistent add-on data mount at `/opt/data`
 - The Hermes OpenAI-compatible API is exposed on TCP port `8642`
-- There is no Home Assistant ingress dashboard or web terminal
-- Model/provider and API-key configuration remain Hermes runtime configuration, not add-on options
+- The Hermes dashboard is exposed directly on TCP port `9119`; there is no Home Assistant ingress or web terminal
+- Native Hermes configuration is provided as one raw `config_yaml` option and becomes `/opt/data/config.yaml` at startup
+- `enable_ha_cli` is an execution gate for the official Home Assistant CLI; it does not revoke the manifest-granted Supervisor token
 
 ## Add-on docs
 
