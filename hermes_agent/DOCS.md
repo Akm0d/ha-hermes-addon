@@ -25,8 +25,9 @@ The Configuration page has only the integration-specific settings below. It does
 - `hass_token`: a Home Assistant Long-Lived Access Token for Hermes' native Home Assistant integration. It becomes `HASS_TOKEN` only in the container runtime environment.
 - `hass_url`: an optional Home Assistant Core base URL. It becomes `HASS_URL` when configured. Leave it blank to retain Hermes' upstream default, `http://homeassistant.local:8123`; use only a base URL, not `/api` or an ingress URL.
 - `api_server_key`: the required bearer key for OpenAI-compatible clients. It becomes `API_SERVER_KEY`; startup fails without it.
+- `a2a_bearer_token`: the required bearer token for inbound Hermes A2A peers. It becomes `A2A_BEARER_TOKEN`; startup fails without it so A2A cannot silently fall back to loopback-only access.
 
-These credentials are separate. The add-on does not log or persist them in Hermes state. `SUPERVISOR_TOKEN` is injected by Supervisor and is neither an add-on option nor a replacement for `HASS_TOKEN` or `API_SERVER_KEY`.
+These credentials are separate. The add-on does not log or persist them in Hermes state. `SUPERVISOR_TOKEN` is injected by Supervisor and is neither an add-on option nor a replacement for `HASS_TOKEN`, `API_SERVER_KEY`, or `A2A_BEARER_TOKEN`.
 
 The values are materialized only during add-on startup. Restart the add-on after changing them if Supervisor has not already restarted it.
 
@@ -37,6 +38,13 @@ The values are materialized only during add-on startup. Restart the add-on after
 - The dashboard has no separate Hermes authentication because it is private to the container. Home Assistant ingress is the browser authentication boundary.
 
 Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
+For compiled dashboard JavaScript, the adapter requests identity encoding and prefixes only root-relative static-resource literals such as `/assets/...` with the current ingress path. This keeps lazy-loaded chunks beneath the Home Assistant ingress route without changing `/api/...` or WebSocket paths.
+
+## Hermes A2A
+
+Hermes A2A is exposed on TCP port `9900`. It binds `0.0.0.0:9900` and its public Agent Card is at `/.well-known/agent-card.json`. JSON-RPC requests require the protected `a2a_bearer_token` add-on option, which is materialized only as `A2A_BEARER_TOKEN` at startup.
+
+`a2a_bearer_token` is separate from `API_SERVER_KEY`, `HASS_TOKEN`, and `SUPERVISOR_TOKEN`; do not reuse any of those credentials. The add-on intentionally does not mirror the full A2A configuration: configure per-peer credentials (`A2A_PEER_TOKENS`), trusted peers, allow-all behavior, or a routable `A2A_PUBLIC_URL` with native Hermes configuration.
 
 ## Dashboard terminal
 

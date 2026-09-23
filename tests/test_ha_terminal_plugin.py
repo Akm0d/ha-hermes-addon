@@ -50,7 +50,9 @@ class HomeAssistantTerminalPluginTest(unittest.TestCase):
     def test_addon_keeps_terminal_ports_private(self) -> None:
         manifest = yaml.safe_load((Path(__file__).parents[1] / "hermes_agent" / "config.yaml").read_text(encoding="utf-8"))
 
-        self.assertEqual(manifest["ports"], {"8642/tcp": 8642})
+        self.assertEqual(manifest["ports"], {"8642/tcp": 8642, "9900/tcp": 9900})
+        self.assertNotIn("9119/tcp", manifest["ports"])
+        self.assertNotIn("9120/tcp", manifest["ports"])
 
     def test_shell_prefers_bash_and_uses_hermes_home(self) -> None:
         with patch.object(ha_terminal.os, "environ", {"HERMES_HOME": "/tmp/hermes-home"}):

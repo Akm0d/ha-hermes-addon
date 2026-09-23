@@ -16,6 +16,10 @@ UPSTREAM_HOST = "127.0.0.1"
 UPSTREAM_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9120"))
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
 PROXY_CONTROL_HEADERS = {"host", "x-ingress-path", "x-forwarded-prefix"}
+JAVASCRIPT_CONTENT_TYPES = {"application/javascript", "application/x-javascript", "text/javascript"}
+ROOT_STATIC_RESOURCE_LITERAL = re.compile(
+    r"(?P<quote>['\"`])(?P<path>/(?:assets|fonts)/[^'\"`\\\s]*|/favicon\.ico)(?P=quote)"
+)
 
 
 def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
@@ -65,6 +69,21 @@ def rewrite_html(body: bytes, prefix: str | None) -> bytes:
     return text.encode("utf-8")
 
 
+def rewrite_javascript(body: bytes, prefix: str | None) -> bytes:
+    """Prefix only quoted root-relative dashboard static-resource URLs."""
+    if not prefix:
+        return body
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body
+
+    def add_prefix(match: re.Match[str]) -> str:
+        return f"{match.group('quote')}{prefix}{match.group('path')}{match.group('quote')}"
+
+    return ROOT_STATIC_RESOURCE_LITERAL.sub(add_prefix, text).encode("utf-8")
+
+
 async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
     protocols = [value.strip() for value in request.headers.get("Sec-WebSocket-Protocol", "").split(",") if value.strip()]
     downstream = web.WebSocketResponse(protocols=protocols, autoping=False, autoclose=False)
@@ -96,14 +115,22 @@ async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
 async def proxy(request: web.Request) -> web.StreamResponse:
     if request.headers.get("Upgrade", "").lower() == "websocket":
         return await websocket_proxy(request)
+    headers = upstream_headers(request)
+    # The response may be rewritten below, so do not accept an encoded body.
+    headers["Accept-Encoding"] = "identity"
     async with ClientSession() as session, session.request(
-        request.method, upstream_url(request), headers=upstream_headers(request), data=request.content.iter_any(), allow_redirects=False
+        request.method, upstream_url(request), headers=headers, data=request.content.iter_any(), allow_redirects=False
     ) as upstream:
         headers = CIMultiDict(
             (name, value) for name, value in upstream.headers.items() if name.lower() not in HOP_HEADERS | {"content-length"}
         )
         if upstream.content_type == "text/html":
             body = rewrite_html(await upstream.read(), ingress_prefix(request.headers.items()))
+            headers.popall("Content-Encoding", None)
+            return web.Response(status=upstream.status, headers=headers, body=body)
+        if upstream.content_type in JAVASCRIPT_CONTENT_TYPES:
+            body = rewrite_javascript(await upstream.read(), ingress_prefix(request.headers.items()))
+            headers.popall("Content-Encoding", None)
             return web.Response(status=upstream.status, headers=headers, body=body)
         response = web.StreamResponse(status=upstream.status, headers=headers)
         await response.prepare(request)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.9.21-9
+
+- Rewrite lazy-loaded dashboard JavaScript static-resource URLs beneath the active Home Assistant ingress prefix.
+
+## 2026.9.21-8
+
+- Expose authenticated inbound Hermes A2A on TCP port `9900`.
+
 ## 2026.9.21-7
 
 - Add the native `ha-terminal` Hermes dashboard plugin with an interactive PTY shell behind Home Assistant ingress.

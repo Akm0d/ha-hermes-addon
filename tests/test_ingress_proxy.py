@@ -44,6 +44,28 @@ class IngressPrefixTest(unittest.TestCase):
         self.assertIn('/api/hassio_ingress/test/assets/index.js', rewritten)
         self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', rewritten)
 
+    def test_javascript_static_literals_use_the_ingress_prefix_once(self) -> None:
+        prefix = "/api/hassio_ingress/test"
+        source = (
+            b'import("/assets/usePageHeader-BtGwRGnc.js");'
+            b"import('/assets/theme.css');"
+            b"const wasm = `/assets/dashboard.wasm`;"
+            b'const card = "/api/hassio_ingress/test/assets/already.js";'
+            b'const remote = "https://example.test/assets/remote.js";'
+            b'const api = "/api/status";'
+        )
+
+        rewritten = ingress_prefix_proxy.rewrite_javascript(source, prefix).decode("utf-8")
+
+        self.assertIn('import("/api/hassio_ingress/test/assets/usePageHeader-BtGwRGnc.js")', rewritten)
+        self.assertIn("import('/api/hassio_ingress/test/assets/theme.css')", rewritten)
+        self.assertIn("`/api/hassio_ingress/test/assets/dashboard.wasm`", rewritten)
+        self.assertIn('"/api/hassio_ingress/test/assets/already.js"', rewritten)
+        self.assertIn('"https://example.test/assets/remote.js"', rewritten)
+        self.assertIn('"/api/status"', rewritten)
+        self.assertNotIn('"/assets/usePageHeader-BtGwRGnc.js"', rewritten)
+        self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', rewritten)
+
 
 class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
     prefix = "/api/hassio_ingress/test"
@@ -101,6 +123,12 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
             )
         if request.path == "/api/status":
             return web.json_response({"status": "ok", "base_path": prefix})
+        if request.path == "/assets/lazy.js":
+            return web.Response(
+                content_type="application/javascript",
+                headers={"Cache-Control": "public, max-age=60"},
+                text='import("/assets/usePageHeader-BtGwRGnc.js"); const api = "/api/status";',
+            )
         return web.Response(text=request.path)
 
     def assert_upstream_request(self, path: str) -> None:
@@ -131,6 +159,22 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
                         self.assertIn('window.__HERMES_BASE_PATH__="/api/hassio_ingress/test"', body)
                         self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', body)
                 self.assert_upstream_request(path)
+
+    async def test_lazy_javascript_assets_keep_the_dynamic_ingress_prefix(self) -> None:
+        async with ClientSession() as session:
+            async with session.get(self.adapter_url + "/assets/lazy.js", headers=self.ingress_headers()) as response:
+                body = await response.text()
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.content_type, "application/javascript")
+        self.assertEqual(response.headers["Cache-Control"], "public, max-age=60")
+        self.assertEqual(int(response.headers["Content-Length"]), len(body.encode("utf-8")))
+        self.assertIn('import("/api/hassio_ingress/test/assets/usePageHeader-BtGwRGnc.js")', body)
+        self.assertIn('"/api/status"', body)
+        self.assertNotIn('"/assets/usePageHeader-BtGwRGnc.js"', body)
+        self.assert_upstream_request("/assets/lazy.js")
+        headers = {name.lower(): value for name, value in self.requests[-1][1]}
+        self.assertEqual(headers[b"accept-encoding"], b"identity")
 
     async def test_websocket_uses_logical_path_and_one_forwarded_prefix(self) -> None:
         async with ClientSession() as session:

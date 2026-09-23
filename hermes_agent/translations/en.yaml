@@ -8,3 +8,6 @@ configuration:
   api_server_key:
     name: OpenAI-compatible API key
     description: Required bearer key for clients connecting to Hermes on port 8642.
+  a2a_bearer_token:
+    name: A2A bearer token
+    description: Required bearer token for authenticated Hermes A2A peers connecting on port 9900.

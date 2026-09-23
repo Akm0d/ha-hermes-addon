@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Materialize the three Home Assistant integration options into s6 env."""
+"""Materialize Home Assistant integration options into s6 environment files."""
 
 from __future__ import annotations
 
@@ -101,9 +101,12 @@ def configure_environment(options: dict[str, Any]) -> None:
     hass_url = string_option(options, "hass_url").rstrip("/")
     hass_token = string_option(options, "hass_token")
     api_server_key = string_option(options, "api_server_key")
+    a2a_bearer_token = string_option(options, "a2a_bearer_token")
     validate_hass_url(hass_url)
     if not api_server_key.strip():
         fail("api_server_key is required; configure an OpenAI-compatible API key before starting")
+    if not a2a_bearer_token.strip():
+        fail("a2a_bearer_token is required to expose A2A safely")
 
     if hass_url:
         write_s6_environment("HASS_URL", hass_url)
@@ -121,6 +124,8 @@ def configure_environment(options: dict[str, Any]) -> None:
 
     write_s6_environment("API_SERVER_KEY", api_server_key)
     print("[ha-environment] API_SERVER_KEY configured")
+    write_s6_environment("A2A_BEARER_TOKEN", a2a_bearer_token)
+    print("[ha-environment] A2A_BEARER_TOKEN configured")
     print("[ha-environment] Official Home Assistant CLI is available at /usr/local/bin/ha")
 
 

@@ -1,5 +1,5 @@
 name: Hermes Agent
-version: "2026.9.21-7"
+version: "2026.9.21-9"
 slug: hermes_agent
 description: Run Hermes Agent as a Home Assistant add-on using the official Hermes image.
 url: https://github.com/NousResearch/hermes-agent
@@ -28,15 +28,21 @@ environment:
   API_SERVER_ENABLED: "true"
   API_SERVER_HOST: "0.0.0.0"
   API_SERVER_PORT: "8642"
+  A2A_HOST: "0.0.0.0"
+  A2A_PORT: "9900"
 ports:
   8642/tcp: 8642
+  9900/tcp: 9900
 ports_description:
   8642/tcp: Hermes OpenAI-compatible API
+  9900/tcp: Hermes A2A endpoint
 options:
   hass_url: ""
   hass_token: ""
   api_server_key: ""
+  a2a_bearer_token: ""
 schema:
   hass_url: str?
   hass_token: password
   api_server_key: password
+  a2a_bearer_token: password
