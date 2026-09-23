@@ -20,35 +20,18 @@ GitHub repository:
 
 ## First start
 
-1. Open the add-on `Configuration` tab.
-2. Set at least:
-   - `model_provider`
-   - `model_name`
-   - the matching API key field for your provider
-3. Click `Save`.
-4. Start the add-on.
-5. Open `Show in sidebar` or the add-on page to access the custom ingress launcher.
-
-## Ingress layout
-
-- The add-on root ingress page is a custom launcher.
-- It includes an embedded terminal in the lower section.
-- It also includes a button to open the full Hermes dashboard.
-
-## Terminal access
-
-- Default: `enable_terminal: true`
-- Direct terminal route: append `/terminal/` to the add-on ingress URL
-- Full Hermes dashboard route: append `/dashboard/` to the add-on ingress URL
+1. Configure Hermes directly under its persistent home, `/opt/data`, following the upstream Hermes documentation.
+2. Start the add-on.
+3. Check the add-on log for Hermes gateway startup.
+4. Configure Open WebUI to reach the Home Assistant host on TCP port `8642`.
 
 ## Notes
 
 - Supported architectures: `amd64`, `aarch64`
-- Hermes state is stored in the add-on private `/data` directory
-- The dashboard is exposed through Home Assistant ingress on port `9119`
-- The web terminal is proxied through ingress at `/terminal/`
-- The full Hermes dashboard is proxied through ingress at `/dashboard/`
-- The internal Hermes API stays bound to loopback inside the container
+- Hermes state is stored in Home Assistant's persistent add-on data mount at `/opt/data`
+- The Hermes OpenAI-compatible API is exposed on TCP port `8642`
+- There is no Home Assistant ingress dashboard or web terminal
+- Model/provider and API-key configuration remain Hermes runtime configuration, not add-on options
 
 ## Add-on docs
 

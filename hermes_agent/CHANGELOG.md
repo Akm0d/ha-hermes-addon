@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.9.21-2
+
+- Replace the custom startup, nginx ingress, and web-terminal stack with the official Hermes image startup path.
+- Persist Hermes' normal Docker home at `/opt/data` and expose its OpenAI-compatible API on TCP port `8642`.
+
 ## 2026.5.7-20
 
 - Fix the full dashboard router basename by injecting the real ingress `/dashboard` prefix into the served HTML

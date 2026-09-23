@@ -2,127 +2,33 @@
 
 ## What this add-on does
 
-This add-on runs [Hermes Agent](https://github.com/NousResearch/hermes-agent) inside Home Assistant using the official upstream Docker image.
+This add-on is a thin Home Assistant wrapper around the official [Hermes Agent](https://github.com/NousResearch/hermes-agent) Docker image. Home Assistant manages the container; Hermes manages its own startup and gateway lifecycle.
 
-The ingress entry page provides:
-- a custom landing page
-- an embedded terminal in the lower section
-- a button that opens the full Hermes dashboard
-- Hermes state is stored in the add-on private `/data` directory
-- the Hermes gateway API stays internal to the container
-- nginx terminates the internal ingress connection on `9119` and forwards to the Hermes dashboard on `127.0.0.1:9120`
-- the root startup wrapper reads Home Assistant's `/data/options.json` before Hermes drops to the non-root `hermes` user
+The container starts Hermes with `hermes gateway run` and exposes its OpenAI-compatible API on TCP port `8642` for clients such as Open WebUI. Hermes logs remain attached to the container's stdout and stderr, so they appear in the Home Assistant add-on log.
 
 ## Storage layout
 
-Hermes uses the add-on private persistent directory:
-- `/data/config.yaml`
-- `/data/.env`
-- `/data/SOUL.md`
-- `/data/sessions/`
-- `/data/memories/`
-- `/data/skills/`
-- `/data/logs/`
-- `/data/workspace/`
+Home Assistant's persistent add-on data mount is provided at `/opt/data`, Hermes' normal Docker home. Hermes owns its runtime state there, including:
 
-## Configuration
-
-### `timezone`
-
-Timezone for the container environment.
-
-### `model_provider`
-
-Hermes provider value written to `config.yaml`.
-
-Supported values in this first release:
-- `auto`
-- `openrouter`
-- `anthropic`
-- `gemini`
-- `custom`
-
-### `model_name`
-
-Default Hermes model written to `config.yaml`.
-
-Examples:
-- `google/gemini-2.5-flash`
-- `anthropic/claude-sonnet-4.6`
-- `openai/gpt-5.4`
-
-### `model_base_url`
-
-Optional custom OpenAI-compatible base URL.
-
-Use this when `model_provider` is `custom`, for example:
-- `http://host.docker.internal:11434/v1`
-- `http://host.docker.internal:1234/v1`
-
-### API keys
-
-The add-on currently supports these secret fields:
-- `openrouter_api_key`
-- `google_api_key`
-- `anthropic_api_key`
-- `openai_api_key`
-
-They are written into the managed section of `/data/.env` on startup.
-
-### `enable_dashboard_tui`
-
-Enable Hermes' in-browser chat tab inside the dashboard.
-
-Default: `false`
-
-### `enable_terminal`
-
-Enable a browser terminal for the add-on shell.
-
-Default: `true`
-
-When enabled, the terminal is available behind Home Assistant ingress at:
-- `<addon ingress url>/terminal/`
-
-The shell runs as the non-root `hermes` user inside the add-on container.
-
-### `gateway_timeout`
-
-Sets `agent.gateway_timeout` in Hermes `config.yaml`.
-
-Set `0` to disable idle timeout.
+- `/opt/data/config.yaml`
+- `/opt/data/.env`
+- `/opt/data/SOUL.md`
+- `/opt/data/sessions/`
+- `/opt/data/memories/`
+- `/opt/data/skills/`
+- `/opt/data/workspace/`
 
 ## Basic setup
 
-1. Open the add-on terminal from Home Assistant ingress.
-2. Pick a provider and model with `/opt/hermes/.venv/bin/hermes model`.
-3. Start the CLI with `/opt/hermes/.venv/bin/hermes` or `/opt/hermes/.venv/bin/hermes --tui`.
-4. To connect a messaging channel like Telegram, run `/opt/hermes/.venv/bin/hermes gateway setup` and follow the prompts.
-5. After setup, use `/opt/hermes/.venv/bin/hermes gateway status` to confirm the gateway is running.
+1. Configure Hermes directly in `/opt/data/config.yaml` and `/opt/data/.env` using the upstream Hermes documentation. This add-on does not translate Home Assistant options into Hermes configuration.
+2. Start the add-on and use its log to confirm that `hermes gateway run` has started.
+3. Configure Open WebUI to reach the Home Assistant host on port `8642`.
 
 If you want the full upstream setup flow, install notes, and provider details, see the official Hermes quickstart: https://hermes-agent.nousresearch.com/docs/getting-started/quickstart.
 
 ## Notes
 
-- This add-on pins Hermes to `v2026.5.7`.
+- This add-on pins Hermes to `v2026.9.21`.
 - Supported Home Assistant architectures are `amd64` and `aarch64`.
-- The ingress root page is a custom launcher with an embedded terminal.
-- The full Hermes dashboard is exposed under `/dashboard/` behind ingress.
-- A small internal nginx proxy translates Home Assistant's `X-Ingress-Path` header to the `X-Forwarded-Prefix` header expected by the Hermes dashboard SPA.
-- The internal Hermes API server is enabled on loopback so the dashboard can talk to the gateway.
-
-## Custom endpoint examples
-
-### Ollama on the Home Assistant host
-
-- `model_provider`: `custom`
-- `model_name`: `llama3.1`
-- `model_base_url`: `http://host.docker.internal:11434/v1`
-- `openai_api_key`: `none`
-
-### LM Studio on another machine
-
-- `model_provider`: `custom`
-- `model_name`: `qwen2.5-coder`
-- `model_base_url`: `http://192.168.1.20:1234/v1`
-- `openai_api_key`: `none`
+- There is no Home Assistant ingress UI, web terminal, model/provider option, or API-key option.
+- API authentication and Open WebUI API-key wiring are not configured by this add-on yet.
