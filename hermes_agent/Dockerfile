@@ -1,6 +1,6 @@
 ARG BUILD_VERSION=dev
 ARG BUILD_ARCH=amd64
-FROM nousresearch/hermes-agent:v2026.5.7
+FROM nousresearch/hermes-agent:v2026.9.21
 
 ARG BUILD_VERSION
 ARG BUILD_ARCH
