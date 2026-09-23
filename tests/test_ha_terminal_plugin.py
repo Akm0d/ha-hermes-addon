@@ -96,16 +96,27 @@ class HomeAssistantTerminalPluginTest(unittest.TestCase):
             with patch.object(ha_terminal.os, "environ", environment):
                 bridge = ha_terminal.spawn_terminal()
             try:
-                command = b"command -v hermes; command -v ha; pwd\r"
+                command = (
+                    b"command -v hermes; command -v ha; command -v rg; command -v ripwire; command -v rtk; "
+                    b"rg --version; ripwire --version; rtk --version; rtk gain; pwd\r"
+                )
                 self.assertTrue(__import__("asyncio").run(bridge.write(command)))
                 output = b""
                 deadline = time.monotonic() + 3
-                while temporary.encode() not in output and time.monotonic() < deadline:
+                while (
+                    b"No tracking data yet." not in output or temporary.encode() not in output
+                ) and time.monotonic() < deadline:
                     chunk = bridge.read(0.1)
                     if chunk:
                         output += chunk
                 self.assertIn(b"/opt/hermes/.venv/bin/hermes", output)
                 self.assertIn(b"/usr/local/bin/ha", output)
+                self.assertIn(b"/usr/bin/rg", output)
+                self.assertIn(b"/usr/local/bin/ripwire", output)
+                self.assertIn(b"/usr/local/bin/rtk", output)
+                self.assertIn(b"ripgrep 14.1.1", output)
+                self.assertIn(b"ripwire 0.6.2", output)
+                self.assertIn(b"rtk 0.49.0", output)
                 self.assertIn(temporary.encode(), output)
             finally:
                 bridge.close()

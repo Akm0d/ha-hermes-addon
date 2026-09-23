@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-10
+
+- Add globally available `ripwire`, `rg`, and `rtk` developer CLI tools, plus idempotent installation of Ripwire's official Hermes skills.
+
 ## 2026.9.21-9
 
 - Rewrite lazy-loaded dashboard JavaScript static-resource URLs beneath the active Home Assistant ingress prefix.

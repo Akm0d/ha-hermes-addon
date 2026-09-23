@@ -56,6 +56,18 @@ The shell runs as the same `hermes` user as the upstream dashboard service, star
 
 The plugin uses Hermes' pinned xterm.js browser assets and its native `PtyBridge`; no terminal service port, nginx, ttyd, or runtime Node dependency is added. Closing the browser WebSocket terminates and reaps that shell's PTY process group.
 
+## Developer tools
+
+The image makes the following commands globally available to Hermes agents and the dashboard Terminal plugin:
+
+- `rg` from ripgrep `14.1.1`, provided by the pinned official Hermes base image.
+- `ripwire` `0.6.2`, from the official [redhat-et/ripwire release](https://github.com/redhat-et/ripwire/releases/tag/v0.6.2). The image build downloads the architecture-specific release archive and verifies its published SHA-256 before installing `/usr/local/bin/ripwire`.
+- `rtk` `0.49.0`, specifically [rtk-ai/rtk](https://github.com/rtk-ai/rtk/releases/tag/v0.49.0), not Rust Type Kit. The image build verifies the official architecture-specific release archive SHA-256 before installing `/usr/local/bin/rtk`.
+
+No Ripwire MCP server is registered and the image never runs `rtk init`, so it does not add RTK hooks or change shell, Hermes, Codex, or Claude configuration.
+
+The official Ripwire skill payload is staged read-only at `/opt/hermes/ripwire-skills`. During s6 container initialization, only missing skill directories are copied to `${HERMES_HOME:-/opt/data}/skills`; existing directories, including user-created skills, are preserved. Repeated starts are idempotent.
+
 ## Home Assistant CLI
 
 The manifest requests the static Supervisor permissions `hassio_api: true` and `hassio_role: manager`. The official `ha` executable is installed at `/usr/local/bin/ha` and uses Supervisor's injected `SUPERVISOR_TOKEN` with the `supervisor` endpoint.

@@ -36,6 +36,7 @@ GitHub repository:
 - Hermes owns its native `/opt/data/config.yaml`; Home Assistant does not mirror or translate it
 - The official Home Assistant CLI is available to Hermes with the manifest's narrowly scoped Supervisor permissions; no second token is stored
 - Dashboard access intentionally grants interactive shell access to the Hermes container through the native terminal plugin
+- The dashboard Terminal and Hermes agents have `ripwire`, `rg`, and `rtk` available on `PATH`
 
 ## Add-on docs
 

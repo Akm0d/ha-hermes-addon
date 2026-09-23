@@ -1,0 +1,5 @@
+#!/command/with-contenv sh
+
+set -eu
+
+exec /usr/local/lib/install-ripwire-skills.sh
