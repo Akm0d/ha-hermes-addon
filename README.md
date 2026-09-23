@@ -5,15 +5,7 @@
 Home Assistant add-on repository for running Hermes Agent inside Home Assistant.
 
 GitHub repository:
-- `https://github.com/diegaccio/ha-hermes-addon`
-
-Current add-on:
-- `hermes_agent`: minimal ingress-first wrapper around the official `nousresearch/hermes-agent:v2026.5.7` image
-
-Status:
-- current add-on version: `2026.5.7-20`
-- pinned to Hermes `v2026.5.7`
-- targets `amd64` and `aarch64`
+- `https://github.com/akm0d/ha-hermes-addon`
 
 ## Install in Home Assistant
 
