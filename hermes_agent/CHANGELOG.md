@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-14
+
+- Keep rewritten bare Vite/Rolldown dependency-map paths relative so the preload runtime does not produce protocol-relative `//api/...` URLs.
+
 ## 2026.9.21-13
 
 - Fix ingress rewriting for bare Vite/Rolldown dashboard dependency-map asset paths, keeping lazy-loaded pages under the dynamic Home Assistant ingress prefix.

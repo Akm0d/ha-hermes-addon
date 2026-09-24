@@ -81,8 +81,12 @@ def rewrite_javascript(body: bytes, prefix: str | None) -> bytes:
 
     def add_prefix(match: re.Match[str]) -> str:
         path = match.group("path")
-        separator = "" if path.startswith("/") else "/"
-        return f"{match.group('quote')}{prefix}{separator}{path}{match.group('quote')}"
+        # Vite/Rolldown dependency maps hold bare paths and prepend their own
+        # slash at runtime. Keep those values relative to avoid a
+        # protocol-relative //api/... browser URL. Literal root paths, on the
+        # other hand, must retain their leading slash.
+        rewritten_path = f"{prefix}{path}" if path.startswith("/") else f"{prefix.lstrip('/')}/{path}"
+        return f"{match.group('quote')}{rewritten_path}{match.group('quote')}"
 
     return STATIC_RESOURCE_LITERAL.sub(add_prefix, text).encode("utf-8")
 
