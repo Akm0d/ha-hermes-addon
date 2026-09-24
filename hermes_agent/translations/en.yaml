@@ -1,13 +1,4 @@
 configuration:
-  hass_url:
-    name: Home Assistant URL
-    description: Optional Home Assistant Core base URL. Leave blank to use Hermes' upstream default (http://homeassistant.local:8123).
-  hass_token:
-    name: Home Assistant Long-Lived Access Token
-    description: Used only by Hermes' native Home Assistant integration.
   api_server_key:
-    name: OpenAI-compatible API key
-    description: Required bearer key for clients connecting to Hermes on port 8642.
-  a2a_bearer_token:
-    name: A2A bearer token
-    description: Required bearer token for authenticated Hermes A2A peers connecting on port 9900.
+    name: OpenAI-compatible API bearer key
+    description: Bearer key used by OpenAI-compatible clients connecting to Hermes on port 8642. Generated automatically on first start if left empty.

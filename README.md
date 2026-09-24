@@ -20,7 +20,7 @@ GitHub repository:
 
 ## First start
 
-1. Open the add-on Configuration page and provide a Home Assistant Long-Lived Access Token, an OpenAI-compatible API key, and an A2A bearer token.
+1. Open the add-on Configuration page and optionally set the Hermes OpenAI-compatible API bearer key. If left blank, it is generated automatically on first start.
 2. Start the add-on and check its log for gateway and dashboard startup.
 3. Use the add-on Open Web UI button for the Hermes dashboard through Home Assistant ingress.
 4. Configure Open WebUI to use TCP port `8642` and the configured API key.

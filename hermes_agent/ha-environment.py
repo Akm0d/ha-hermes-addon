@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Materialize Home Assistant integration options into s6 environment files."""
+"""Materialize the Home Assistant API bearer key into the s6 environment."""
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
-STANDARD_OPTIONS = Path("/data/options.json")
-MAPPED_OPTIONS = Path("/opt/data/options.json")
+SUPERVISOR_URL = "http://supervisor"
+INFO_PATH = "/addons/self/info"
+OPTIONS_PATH = "/addons/self/options"
 S6_ENVIRONMENT = Path("/run/s6/container_environment")
 
 
@@ -22,52 +25,83 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def same_file(first: Path, second: Path) -> bool:
+def supervisor_token() -> str:
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        fail("SUPERVISOR_TOKEN is unavailable; cannot read Home Assistant app options")
+    return token
+
+
+def supervisor_request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        f"{SUPERVISOR_URL}{path}",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {supervisor_token()}",
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if data is not None else {}),
+        },
+        method=method,
+    )
     try:
-        return first.samefile(second)
-    except OSError:
-        return False
-
-
-def options_path() -> Path:
-    standard_exists = STANDARD_OPTIONS.is_file()
-    mapped_exists = MAPPED_OPTIONS.is_file()
-    if standard_exists and mapped_exists and not same_file(STANDARD_OPTIONS, MAPPED_OPTIONS):
-        fail("found conflicting Home Assistant options files")
-    if standard_exists:
-        return STANDARD_OPTIONS
-    if mapped_exists:
-        return MAPPED_OPTIONS
-    fail("Home Assistant options.json was not found")
+        with urlopen(request, timeout=10) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError):
+        fail("Supervisor app-options request failed")
+    if not isinstance(body, dict) or body.get("result") != "ok":
+        fail("Supervisor returned an invalid app-options response")
+    return body
 
 
 def load_options() -> dict[str, Any]:
-    try:
-        options = json.loads(options_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        fail("could not read Home Assistant options.json")
+    response = supervisor_request("GET", INFO_PATH)
+    data = response.get("data")
+    options = data.get("options") if isinstance(data, dict) else None
     if not isinstance(options, dict):
-        fail("Home Assistant options.json must contain an object")
+        fail("Supervisor returned invalid app options")
     return options
 
 
-def string_option(options: dict[str, Any], name: str) -> str:
-    value = options.get(name, "")
-    if not isinstance(value, str):
-        fail(f"{name} must be a string")
-    if "\x00" in value or "\n" in value or "\r" in value:
-        fail(f"{name} must not contain control characters")
-    return value
+def persist_options(options: dict[str, str]) -> None:
+    supervisor_request("POST", OPTIONS_PATH, {"options": options})
 
 
-def validate_hass_url(value: str) -> None:
-    if not value:
-        return
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.params or parsed.query or parsed.fragment:
-        fail("hass_url must be an http(s) Home Assistant Core base URL")
-    if parsed.path not in {"", "/"}:
-        fail("hass_url must not include an API path")
+def option_key(options: dict[str, Any]) -> str | None:
+    key = options.get("api_server_key")
+    if not isinstance(key, str) or not key.strip():
+        return None
+    if "\x00" in key or "\n" in key or "\r" in key:
+        return None
+    return key
+
+
+def resolve_api_key(options: dict[str, Any]) -> str:
+    key = option_key(options)
+    generated = key is None
+    if generated:
+        key = secrets.token_urlsafe(32)
+
+    clean_options = {"api_server_key": key}
+    if generated or options != clean_options:
+        try:
+            persist_options(clean_options)
+        except SystemExit:
+            if generated:
+                raise
+            print(
+                "[ha-environment] WARNING: could not remove obsolete Home Assistant app options; using existing API_SERVER_KEY",
+                file=sys.stderr,
+            )
+        else:
+            if generated:
+                print("[ha-environment] API_SERVER_KEY generated and persisted")
+            else:
+                print("[ha-environment] obsolete Home Assistant app options removed")
+    else:
+        print("[ha-environment] API_SERVER_KEY loaded from Supervisor options")
+
+    return key
 
 
 def write_s6_environment(name: str, value: str) -> None:
@@ -90,48 +124,15 @@ def write_s6_environment(name: str, value: str) -> None:
         fail(f"could not set runtime environment for {name}")
 
 
-def remove_s6_environment(name: str) -> None:
-    try:
-        (S6_ENVIRONMENT / name).unlink(missing_ok=True)
-    except OSError:
-        fail(f"could not clear runtime environment for {name}")
-
-
-def configure_environment(options: dict[str, Any]) -> None:
-    hass_url = string_option(options, "hass_url").rstrip("/")
-    hass_token = string_option(options, "hass_token")
-    api_server_key = string_option(options, "api_server_key")
-    a2a_bearer_token = string_option(options, "a2a_bearer_token")
-    validate_hass_url(hass_url)
-    if not api_server_key.strip():
-        fail("api_server_key is required; configure an OpenAI-compatible API key before starting")
-    if not a2a_bearer_token.strip():
-        fail("a2a_bearer_token is required to expose A2A safely")
-
-    if hass_url:
-        write_s6_environment("HASS_URL", hass_url)
-        print("[ha-environment] HASS_URL configured")
-    else:
-        remove_s6_environment("HASS_URL")
-        print("[ha-environment] HASS_URL not set; Hermes will use its upstream default")
-
-    if hass_token:
-        write_s6_environment("HASS_TOKEN", hass_token)
-        print("[ha-environment] HASS_TOKEN configured")
-    else:
-        remove_s6_environment("HASS_TOKEN")
-        print("[ha-environment] WARNING: HASS_TOKEN is not configured; Hermes Home Assistant integration is unavailable", file=sys.stderr)
-
-    write_s6_environment("API_SERVER_KEY", api_server_key)
-    print("[ha-environment] API_SERVER_KEY configured")
-    write_s6_environment("A2A_BEARER_TOKEN", a2a_bearer_token)
-    print("[ha-environment] A2A_BEARER_TOKEN configured")
+def configure_environment() -> None:
+    write_s6_environment("API_SERVER_KEY", resolve_api_key(load_options()))
+    print("[ha-environment] API_SERVER_KEY configured for s6 services")
     print("[ha-environment] Official Home Assistant CLI is available at /usr/local/bin/ha")
 
 
 def main() -> None:
     print("[ha-environment] Hermes Home Assistant app initialization")
-    configure_environment(load_options())
+    configure_environment()
 
 
 if __name__ == "__main__":

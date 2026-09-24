@@ -22,19 +22,16 @@ Home Assistant's persistent add-on data mount is provided at `/opt/data`, Hermes
 
 The Configuration page has only the integration-specific settings below. It does not expose Hermes runtime configuration. Hermes exclusively owns `/opt/data/config.yaml` and all other state under `/opt/data`.
 
-- `hass_token`: a Home Assistant Long-Lived Access Token for Hermes' native Home Assistant integration. It becomes `HASS_TOKEN` only in the container runtime environment.
-- `hass_url`: an optional Home Assistant Core base URL. It becomes `HASS_URL` when configured. Leave it blank to retain Hermes' upstream default, `http://homeassistant.local:8123`; use only a base URL, not `/api` or an ingress URL.
-- `api_server_key`: the required bearer key for OpenAI-compatible clients. It becomes `API_SERVER_KEY`; startup fails without it.
-- `a2a_bearer_token`: the required bearer token for inbound Hermes A2A peers. It becomes `A2A_BEARER_TOKEN`; startup fails without it so A2A cannot silently fall back to loopback-only access.
+- `api_server_key`: the bearer key used by OpenAI-compatible clients on TCP port `8642`. If blank on first startup, the add-on generates a cryptographically secure key and stores it in Supervisor options.
 
-These credentials are separate. The add-on does not log or persist them in Hermes state. `SUPERVISOR_TOKEN` is injected by Supervisor and is neither an add-on option nor a replacement for `HASS_TOKEN`, `API_SERVER_KEY`, or `A2A_BEARER_TOKEN`.
+The add-on reads and persists this option through Supervisor's authenticated self API, not `/data/options.json`, then atomically writes it to `/run/s6/container_environment/API_SERVER_KEY` before upstream Hermes services start. It never logs the key. `SUPERVISOR_TOKEN` remains Supervisor-only and is never stored or reused as an API key.
 
-The values are materialized only during add-on startup. Restart the add-on after changing them if Supervisor has not already restarted it.
+Hermes' own Home Assistant integration (`HASS_URL`, `HASS_TOKEN`) and its A2A authentication settings are native Hermes configuration. Configure them through `hermes setup` or Hermes' native files under `/opt/data`; this add-on does not read, remove, or overwrite them.
 
 ## Access
 
 - Home Assistant's Open Web UI opens the normal Home Assistant ingress panel for Hermes, under the Home Assistant origin.
-- Open WebUI and other compatible clients use TCP port `8642` with the configured `api_server_key`.
+- Open WebUI and other compatible clients use `http://<Home-Assistant-host>:8642/v1` with `Authorization: Bearer <api_server_key>`.
 - The dashboard has no separate Hermes authentication because it is private to the container. Home Assistant ingress is the browser authentication boundary.
 
 Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
@@ -44,9 +41,9 @@ When the adapter rewrites dashboard HTML or JavaScript, it serves that modified 
 
 ## Hermes A2A
 
-Hermes A2A is exposed on TCP port `9900`. It binds `0.0.0.0:9900` and its public Agent Card is at `/.well-known/agent-card.json`. JSON-RPC requests require the protected `a2a_bearer_token` add-on option, which is materialized only as `A2A_BEARER_TOKEN` at startup.
+Hermes A2A is exposed on TCP port `9900`. It binds `0.0.0.0:9900` and its public Agent Card is at `/.well-known/agent-card.json`. Configure A2A authentication with native Hermes configuration.
 
-`a2a_bearer_token` is separate from `API_SERVER_KEY`, `HASS_TOKEN`, and `SUPERVISOR_TOKEN`; do not reuse any of those credentials. The add-on intentionally does not mirror the full A2A configuration: configure per-peer credentials (`A2A_PEER_TOKENS`), trusted peers, allow-all behavior, or a routable `A2A_PUBLIC_URL` with native Hermes configuration.
+A2A credentials are separate from `API_SERVER_KEY` and `SUPERVISOR_TOKEN`; do not reuse either. The add-on intentionally does not mirror A2A configuration: configure bearer or per-peer credentials (`A2A_BEARER_TOKEN`, `A2A_PEER_TOKENS`), trusted peers, allow-all behavior, or a routable `A2A_PUBLIC_URL` with native Hermes configuration.
 
 ## Dashboard terminal
 

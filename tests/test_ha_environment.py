@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import URLError
 
 import yaml
 
@@ -20,75 +23,130 @@ SPEC.loader.exec_module(ha_environment)
 class HomeAssistantEnvironmentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        root = Path(self.temporary.name)
-        self.options = root / "options.json"
-        self.environment = root / "environment"
-        self.patches = [
-            patch.object(ha_environment, "STANDARD_OPTIONS", self.options),
-            patch.object(ha_environment, "MAPPED_OPTIONS", root / "missing-options.json"),
-            patch.object(ha_environment, "S6_ENVIRONMENT", self.environment),
-        ]
-        for active_patch in self.patches:
-            active_patch.start()
+        self.root = Path(self.temporary.name)
+        self.environment = self.root / "environment"
+        self.s6_patch = patch.object(ha_environment, "S6_ENVIRONMENT", self.environment)
+        self.s6_patch.start()
 
     def tearDown(self) -> None:
-        for active_patch in reversed(self.patches):
-            active_patch.stop()
+        self.s6_patch.stop()
         self.temporary.cleanup()
 
-    def test_materializes_only_the_four_integration_values(self) -> None:
-        self.options.write_text(
-            '{"hass_url":"http://homeassistant.local:8123/","hass_token":"long-lived-token","api_server_key":"api-key","a2a_bearer_token":"a2a-token"}',
-            encoding="utf-8",
-        )
+    def test_existing_key_is_reused_and_injected_without_mutation(self) -> None:
+        request = unittest.mock.Mock(return_value={"result": "ok", "data": {"options": {"api_server_key": "existing-key"}}})
 
-        ha_environment.configure_environment(ha_environment.load_options())
+        with patch.object(ha_environment, "supervisor_request", request):
+            ha_environment.configure_environment()
 
-        self.assertEqual((self.environment / "HASS_URL").read_text(), "http://homeassistant.local:8123")
-        self.assertEqual((self.environment / "HASS_TOKEN").read_text(), "long-lived-token")
-        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "api-key")
-        self.assertEqual((self.environment / "A2A_BEARER_TOKEN").read_text(), "a2a-token")
+        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "existing-key")
+        self.assertEqual(sorted(item.name for item in self.environment.iterdir()), ["API_SERVER_KEY"])
+        request.assert_called_once_with("GET", "/addons/self/info")
+
+    def test_supervisor_requests_use_authenticated_self_endpoints_and_result_data_envelope(self) -> None:
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"result":"ok","data":{"options":{"api_server_key":"api-key"}}}'
+
+        opener = unittest.mock.Mock(return_value=Response())
+        with patch.dict(ha_environment.os.environ, {"SUPERVISOR_TOKEN": "supervisor-token"}, clear=True), patch.object(
+            ha_environment, "urlopen", opener
+        ):
+            self.assertEqual(ha_environment.load_options(), {"api_server_key": "api-key"})
+
+        request = opener.call_args.args[0]
+        self.assertEqual(request.full_url, "http://supervisor/addons/self/info")
+        self.assertEqual(request.get_header("Authorization"), "Bearer supervisor-token")
+
+    def test_empty_key_generates_secure_key_and_persists_only_supported_option(self) -> None:
+        request = unittest.mock.Mock(side_effect=[
+            {"result": "ok", "data": {"options": {"hass_url": "old", "hass_token": "old", "api_server_key": ""}}},
+            {"result": "ok", "data": {}},
+        ])
+
+        output = io.StringIO()
+        with patch.object(ha_environment, "supervisor_request", request), patch.object(
+            ha_environment.secrets, "token_urlsafe", return_value="generated-secure-key"
+        ), contextlib.redirect_stdout(output):
+            ha_environment.configure_environment()
+
+        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "generated-secure-key")
         self.assertEqual(
-            sorted(item.name for item in self.environment.iterdir()),
-            ["A2A_BEARER_TOKEN", "API_SERVER_KEY", "HASS_TOKEN", "HASS_URL"],
+            request.call_args_list,
+            [
+                unittest.mock.call("GET", "/addons/self/info"),
+                unittest.mock.call("POST", "/addons/self/options", {"options": {"api_server_key": "generated-secure-key"}}),
+            ],
         )
+        self.assertNotIn("generated-secure-key", output.getvalue())
 
-    def test_blank_hass_values_are_not_persisted_as_runtime_environment(self) -> None:
-        self.options.write_text(
-            '{"hass_url":"","hass_token":"","api_server_key":"api-key","a2a_bearer_token":"a2a-token"}',
-            encoding="utf-8",
-        )
-        self.environment.mkdir()
-        (self.environment / "HASS_URL").write_text("stale", encoding="utf-8")
-        (self.environment / "HASS_TOKEN").write_text("stale", encoding="utf-8")
+    def test_subsequent_startup_reuses_persisted_generated_key(self) -> None:
+        persisted = {"api_server_key": "generated-secure-key"}
+        request = unittest.mock.Mock(return_value={"result": "ok", "data": {"options": persisted}})
 
-        ha_environment.configure_environment(ha_environment.load_options())
+        with patch.object(ha_environment, "supervisor_request", request):
+            ha_environment.configure_environment()
+            ha_environment.configure_environment()
 
-        self.assertFalse((self.environment / "HASS_URL").exists())
-        self.assertFalse((self.environment / "HASS_TOKEN").exists())
-        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "api-key")
-        self.assertEqual((self.environment / "A2A_BEARER_TOKEN").read_text(), "a2a-token")
+        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "generated-secure-key")
+        self.assertEqual(request.call_count, 2)
+        self.assertTrue(all(call.args == ("GET", "/addons/self/info") for call in request.call_args_list))
 
-    def test_blank_api_key_prevents_startup(self) -> None:
-        with self.assertRaisesRegex(SystemExit, "1"):
-            ha_environment.configure_environment({"api_server_key": "   ", "a2a_bearer_token": "a2a-token"})
+    def test_existing_key_survives_obsolete_option_cleanup_failure(self) -> None:
+        request = unittest.mock.Mock(side_effect=[
+            {"result": "ok", "data": {"options": {"api_server_key": "existing-key", "hass_url": "obsolete"}}},
+            SystemExit(1),
+        ])
 
-    def test_blank_a2a_token_prevents_unsafe_remote_exposure(self) -> None:
-        with self.assertRaisesRegex(SystemExit, "1"):
-            ha_environment.configure_environment({"api_server_key": "api-key", "a2a_bearer_token": "   "})
+        with patch.object(ha_environment, "supervisor_request", request):
+            ha_environment.configure_environment()
 
-    def test_hass_url_must_be_a_base_url(self) -> None:
-        for value in ("homeassistant.local:8123", "http://homeassistant.local:8123/api", "http://host/?query=1"):
-            with self.subTest(value=value), self.assertRaisesRegex(SystemExit, "1"):
-                ha_environment.configure_environment(
-                    {"hass_url": value, "api_server_key": "api-key", "a2a_bearer_token": "a2a-token"}
-                )
+        self.assertEqual((self.environment / "API_SERVER_KEY").read_text(), "existing-key")
 
-    def test_manifest_exposes_authenticated_a2a_without_dashboard_ports(self) -> None:
+    def test_native_hermes_files_are_untouched(self) -> None:
+        hermes_home = self.root / "hermes-home"
+        hermes_home.mkdir()
+        config = hermes_home / "config.yaml"
+        dotenv = hermes_home / ".env"
+        config.write_text("model: native\n", encoding="utf-8")
+        dotenv.write_text("HASS_TOKEN=native-token\nHASS_URL=http://native\n", encoding="utf-8")
+        request = unittest.mock.Mock(return_value={"result": "ok", "data": {"options": {"api_server_key": "api-key"}}})
+
+        with patch.object(ha_environment, "supervisor_request", request):
+            ha_environment.configure_environment()
+
+        self.assertEqual(config.read_text(encoding="utf-8"), "model: native\n")
+        self.assertEqual(dotenv.read_text(encoding="utf-8"), "HASS_TOKEN=native-token\nHASS_URL=http://native\n")
+
+    def test_supervisor_failure_does_not_leak_its_token(self) -> None:
+        secret = "supervisor-token-must-not-appear"
+        output = io.StringIO()
+
+        with patch.dict(ha_environment.os.environ, {"SUPERVISOR_TOKEN": secret}, clear=True), patch.object(
+            ha_environment, "urlopen", side_effect=URLError(secret)
+        ), contextlib.redirect_stderr(output), self.assertRaises(SystemExit):
+            ha_environment.load_options()
+
+        self.assertNotIn(secret, output.getvalue())
+        self.assertIn("Supervisor app-options request failed", output.getvalue())
+
+    def test_manifest_exposes_only_api_key_and_preserves_existing_ports(self) -> None:
         manifest = yaml.safe_load(ADDON_CONFIG.read_text(encoding="utf-8"))
+        translations = yaml.safe_load((ADDON_CONFIG.parent / "translations" / "en.yaml").read_text(encoding="utf-8"))
+        source = SCRIPT.read_text(encoding="utf-8")
 
+        self.assertEqual(manifest["options"], {"api_server_key": ""})
+        self.assertEqual(manifest["schema"], {"api_server_key": "password"})
+        self.assertEqual(set(translations["configuration"]), {"api_server_key"})
         self.assertEqual(manifest["ports"], {"8642/tcp": 8642, "9900/tcp": 9900})
-        self.assertEqual(manifest["environment"]["A2A_HOST"], "0.0.0.0")
-        self.assertEqual(manifest["environment"]["A2A_PORT"], "9900")
-        self.assertNotIn("9119/tcp", manifest["ports"])
-        self.assertNotIn("9120/tcp", manifest["ports"])
+        self.assertNotIn("hass_url", manifest["options"])
+        self.assertNotIn("hass_token", manifest["options"])
+        self.assertNotIn("a2a_bearer_token", manifest["options"])
+        self.assertNotIn("options.json", source)
+        self.assertNotIn('"HASS_URL"', source)
+        self.assertNotIn('"HASS_TOKEN"', source)

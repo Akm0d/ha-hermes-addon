@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-12
+
+- Read and persist the OpenAI-compatible API bearer key through Supervisor self-options, inject it into s6 before Hermes starts, and remove obsolete Home Assistant options.
+
 ## 2026.9.21-11
 
 - Mark ingress-adapter rewritten dashboard HTML and JavaScript as `no-store` and remove stale upstream validators.
