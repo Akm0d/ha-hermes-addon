@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.9.21-15
+
+- Remove the redundant Home Assistant API-key option and rely on Hermes' persistent `/opt/data/.env` key lifecycle.
+- Normalize Home Assistant ingress WebSocket origin and client-identity headers for the loopback dashboard backend.
+
 ## 2026.9.21-14
 
 - Keep rewritten bare Vite/Rolldown dependency-map paths relative so the preload runtime does not produce protocol-relative `//api/...` URLs.

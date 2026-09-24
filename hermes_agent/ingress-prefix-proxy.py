@@ -16,6 +16,14 @@ UPSTREAM_HOST = "127.0.0.1"
 UPSTREAM_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9120"))
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
 PROXY_CONTROL_HEADERS = {"host", "x-ingress-path", "x-forwarded-prefix"}
+WEBSOCKET_CLIENT_IDENTITY_HEADERS = {
+    "origin",
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+}
 JAVASCRIPT_CONTENT_TYPES = {"application/javascript", "application/x-javascript", "text/javascript"}
 STATIC_RESOURCE_LITERAL = re.compile(
     r"(?P<quote>['\"`])(?P<path>/?(?:assets|fonts)/[^'\"`\\\s]*|/?favicon\.ico)(?P=quote)"
@@ -32,10 +40,16 @@ def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
     return None
 
 
-def upstream_headers(request: web.Request) -> dict[str, str]:
+def upstream_headers(request: web.Request, *, websocket: bool = False) -> dict[str, str]:
     # Supervisor supplies X-Ingress-Path. Hermes understands X-Forwarded-Prefix,
     # so consume the former rather than forwarding both prefix mechanisms.
-    headers = {name: value for name, value in request.headers.items() if name.lower() not in HOP_HEADERS | PROXY_CONTROL_HEADERS}
+    excluded = HOP_HEADERS | PROXY_CONTROL_HEADERS
+    if websocket:
+        # The outer Origin and client-address headers describe the Home
+        # Assistant ingress request. Hermes validates WebSocket origins against
+        # its loopback bind, so they must not reach the trusted local backend.
+        excluded |= WEBSOCKET_CLIENT_IDENTITY_HEADERS
+    headers = {name: value for name, value in request.headers.items() if name.lower() not in excluded}
     if prefix := ingress_prefix(request.headers.items()):
         headers["X-Forwarded-Prefix"] = prefix
     return headers
@@ -105,7 +119,7 @@ async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
     downstream = web.WebSocketResponse(protocols=protocols, autoping=False, autoclose=False)
     await downstream.prepare(request)
     async with ClientSession() as session, session.ws_connect(
-        upstream_url(request), headers=upstream_headers(request), protocols=protocols, autoping=False, autoclose=False
+        upstream_url(request), headers=upstream_headers(request, websocket=True), protocols=protocols, autoping=False, autoclose=False
     ) as upstream:
         async def forward(source, destination) -> None:
             async for message in source:

@@ -107,6 +107,7 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         self.requests: list[tuple[str, list[tuple[bytes, bytes]]]] = []
+        self.request_queries: list[str] = []
         self.original_upstream_port = ingress_prefix_proxy.UPSTREAM_PORT
 
         upstream = web.Application()
@@ -135,15 +136,30 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
     def ingress_headers(self) -> dict[str, str]:
         return {"X-Ingress-Path": self.prefix + "/"}
 
+    def websocket_ingress_headers(self) -> dict[str, str]:
+        return {
+            **self.ingress_headers(),
+            "Origin": "https://hearth.example",
+            "X-Forwarded-For": "203.0.113.10",
+            "X-Forwarded-Host": "hearth.example",
+            "X-Forwarded-Proto": "https",
+            "X-Real-IP": "203.0.113.10",
+        }
+
     async def upstream(self, request: web.Request) -> web.StreamResponse:
         self.requests.append((request.path, list(request.raw_headers)))
+        self.request_queries.append(request.query_string)
         if request.headers.get("Upgrade", "").lower() == "websocket":
+            if request.headers.get("Origin") or request.headers.get("Host") != f"127.0.0.1:{ingress_prefix_proxy.UPSTREAM_PORT}":
+                return web.Response(status=403, text="origin_mismatch")
             socket = web.WebSocketResponse()
             await socket.prepare(request)
             await socket.send_str("ready")
             async for message in socket:
                 if message.type is WSMsgType.TEXT:
                     await socket.send_str(message.data)
+                elif message.type is WSMsgType.BINARY:
+                    await socket.send_bytes(message.data)
             return socket
 
         prefix = request.headers.get("X-Forwarded-Prefix", "")
@@ -276,10 +292,32 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assert_upstream_request("/assets/untouched.js")
 
     async def test_websocket_uses_logical_path_and_one_forwarded_prefix(self) -> None:
+        paths = ("/api/pty", "/api/events", "/api/ws", "/api/pub", "/api/console")
         async with ClientSession() as session:
-            async with session.ws_connect(self.adapter_url.replace("http", "ws", 1) + "/api/ws", headers=self.ingress_headers()) as socket:
-                message = await socket.receive()
+            for path in paths:
+                async with session.ws_connect(
+                    self.adapter_url.replace("http", "ws", 1) + path + "?ticket=dashboard-token&channel=chat",
+                    headers=self.websocket_ingress_headers(),
+                ) as socket:
+                    message = await socket.receive()
+                    self.assertEqual(message.type, WSMsgType.TEXT)
+                    self.assertEqual(message.data, "ready")
+                    await socket.send_str("prompt")
+                    message = await socket.receive()
+                    self.assertEqual(message.type, WSMsgType.TEXT)
+                    self.assertEqual(message.data, "prompt")
+                    await socket.send_bytes(b"resize")
+                    message = await socket.receive()
+                    self.assertEqual(message.type, WSMsgType.BINARY)
+                    self.assertEqual(message.data, b"resize")
 
-        self.assertEqual(message.type, WSMsgType.TEXT)
-        self.assertEqual(message.data, "ready")
-        self.assert_upstream_request("/api/ws")
+                self.assert_upstream_request(path)
+                self.assertEqual(self.request_queries[-1], "ticket=dashboard-token&channel=chat")
+                headers = {name.lower(): value for name, value in self.requests[-1][1]}
+                self.assertEqual(headers[b"host"], f"127.0.0.1:{ingress_prefix_proxy.UPSTREAM_PORT}".encode())
+                self.assertNotIn(b"origin", headers)
+                self.assertNotIn(b"forwarded", headers)
+                self.assertNotIn(b"x-forwarded-for", headers)
+                self.assertNotIn(b"x-forwarded-host", headers)
+                self.assertNotIn(b"x-forwarded-proto", headers)
+                self.assertNotIn(b"x-real-ip", headers)

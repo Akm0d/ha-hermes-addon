@@ -18,23 +18,32 @@ Home Assistant's persistent add-on data mount is provided at `/opt/data`, Hermes
 - `/opt/data/skills/`
 - `/opt/data/workspace/`
 
-## Home Assistant options
+## Configuration and API key
 
-The Configuration page has only the integration-specific settings below. It does not expose Hermes runtime configuration. Hermes exclusively owns `/opt/data/config.yaml` and all other state under `/opt/data`.
+The add-on has no Home Assistant Options fields. Hermes exclusively owns `/opt/data/config.yaml`, `/opt/data/.env`, and all other runtime state under `/opt/data`.
 
-- `api_server_key`: the bearer key used by OpenAI-compatible clients on TCP port `8642`. If blank on first startup, the add-on generates a cryptographically secure key and stores it in Supervisor options.
+Hermes generates `API_SERVER_KEY` with secure randomness on first start when it is absent, persists it as `API_SERVER_KEY=<secret>` in `/opt/data/.env`, and reuses that value on later starts. The upstream Hermes bootstrap preserves unrelated `.env` entries, makes the file owner-readable only, and loads it before the gateway starts. The add-on does not copy this secret into Supervisor options or log it.
 
-The add-on reads and persists this option through Supervisor's authenticated self API, not `/data/options.json`, then atomically writes it to `/run/s6/container_environment/API_SERVER_KEY` before upstream Hermes services start. It never logs the key. `SUPERVISOR_TOKEN` remains Supervisor-only and is never stored or reused as an API key.
-
-Hermes' own Home Assistant integration (`HASS_URL`, `HASS_TOKEN`) and its A2A authentication settings are native Hermes configuration. Configure them through `hermes setup` or Hermes' native files under `/opt/data`; this add-on does not read, remove, or overwrite them.
+Hermes' Home Assistant integration (`HASS_URL`, `HASS_TOKEN`) and its A2A authentication settings are also native Hermes configuration. Configure them through `hermes setup` or Hermes' native files under `/opt/data`; this add-on does not read, remove, or overwrite them.
 
 ## Access
 
 - Home Assistant's Open Web UI opens the normal Home Assistant ingress panel for Hermes, under the Home Assistant origin.
-- Open WebUI and other compatible clients use `http://<Home-Assistant-host>:8642/v1` with `Authorization: Bearer <api_server_key>`.
+- Home Assistant integrations such as Local OpenAI LLM use the internal app-network URL `http://ab25b854-hermes-agent:8642/v1`, model `hermes-agent`, and `Authorization: Bearer <API_SERVER_KEY>`.
+- Open WebUI and other trusted compatible clients that can reach the published port use `http://<home-assistant-host>:8642/v1` with `Authorization: Bearer <API_SERVER_KEY>`.
 - The dashboard has no separate Hermes authentication because it is private to the container. Home Assistant ingress is the browser authentication boundary.
 
-Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
+Do not use `localhost:8642` or `127.0.0.1:8642` from Home Assistant Core: those refer to the Core container rather than Hermes. The API is suitable for Local OpenAI LLM, Open WebUI, and other OpenAI-compatible clients, but arbitrary client-supplied OpenAI tools are not necessarily equivalent to Hermes-native tools.
+
+`API_SERVER_KEY` is a secret bearer credential. An administrator can retrieve it from the dashboard Terminal when needed:
+
+```bash
+grep '^API_SERVER_KEY=' /opt/data/.env
+```
+
+Do not paste the resulting value into logs or chats.
+
+Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. For WebSockets, it removes outer-browser `Origin` and client-identity forwarding headers so the loopback dashboard validates the adapter's local connection. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
 For compiled dashboard JavaScript, the adapter requests identity encoding and prefixes quoted static-resource literals with the current ingress path. Root-relative literals such as `/assets/...` remain root-relative; Vite/Rolldown dependency-map entries such as `assets/...` remain bare so its preload runtime adds exactly one leading slash. This keeps lazy-loaded chunks beneath the Home Assistant ingress route without changing relative imports, `/api/...`, or WebSocket paths.
 
 When the adapter rewrites dashboard HTML or JavaScript, it serves that modified representation with `Cache-Control: no-store` and removes upstream validators. Untouched upstream responses retain their normal cache headers.
