@@ -17,8 +17,8 @@ UPSTREAM_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "9120"))
 HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"}
 PROXY_CONTROL_HEADERS = {"host", "x-ingress-path", "x-forwarded-prefix"}
 JAVASCRIPT_CONTENT_TYPES = {"application/javascript", "application/x-javascript", "text/javascript"}
-ROOT_STATIC_RESOURCE_LITERAL = re.compile(
-    r"(?P<quote>['\"`])(?P<path>/(?:assets|fonts)/[^'\"`\\\s]*|/favicon\.ico)(?P=quote)"
+STATIC_RESOURCE_LITERAL = re.compile(
+    r"(?P<quote>['\"`])(?P<path>/?(?:assets|fonts)/[^'\"`\\\s]*|/?favicon\.ico)(?P=quote)"
 )
 TRANSFORMED_RESPONSE_HEADERS = {"content-encoding", "content-length", "content-md5", "etag", "last-modified"}
 
@@ -71,7 +71,7 @@ def rewrite_html(body: bytes, prefix: str | None) -> bytes:
 
 
 def rewrite_javascript(body: bytes, prefix: str | None) -> bytes:
-    """Prefix only quoted root-relative dashboard static-resource URLs."""
+    """Prefix quoted dashboard static-resource URLs, including Vite dependency maps."""
     if not prefix:
         return body
     try:
@@ -80,9 +80,11 @@ def rewrite_javascript(body: bytes, prefix: str | None) -> bytes:
         return body
 
     def add_prefix(match: re.Match[str]) -> str:
-        return f"{match.group('quote')}{prefix}{match.group('path')}{match.group('quote')}"
+        path = match.group("path")
+        separator = "" if path.startswith("/") else "/"
+        return f"{match.group('quote')}{prefix}{separator}{path}{match.group('quote')}"
 
-    return ROOT_STATIC_RESOURCE_LITERAL.sub(add_prefix, text).encode("utf-8")
+    return STATIC_RESOURCE_LITERAL.sub(add_prefix, text).encode("utf-8")
 
 
 def transformed_response_headers(headers: CIMultiDict[str]) -> CIMultiDict[str]:

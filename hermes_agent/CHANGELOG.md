@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-13
+
+- Fix ingress rewriting for bare Vite/Rolldown dashboard dependency-map asset paths, keeping lazy-loaded pages under the dynamic Home Assistant ingress prefix.
+
 ## 2026.9.21-12
 
 - Read and persist the OpenAI-compatible API bearer key through Supervisor self-options, inject it into s6 before Hermes starts, and remove obsolete Home Assistant options.

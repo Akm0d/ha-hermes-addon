@@ -44,25 +44,54 @@ class IngressPrefixTest(unittest.TestCase):
         self.assertIn('/api/hassio_ingress/test/assets/index.js', rewritten)
         self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', rewritten)
 
-    def test_javascript_static_literals_use_the_ingress_prefix_once(self) -> None:
+    def test_javascript_static_literals_and_vite_dependency_maps_use_the_ingress_prefix_once(self) -> None:
         prefix = "/api/hassio_ingress/test"
         source = (
+            b'const deps = ['
+            b'"assets/ConfigPage-DaxHB67Y.js",'
+            b'"assets/rolldown-runtime-CbXtAM7H.js",'
+            b'"assets/react-vendor-BoVnYuL4.js"'
+            b'];'
+            b'const bare_double = "assets/foo.js";'
+            b"const bare_single = 'assets/foo.js';"
+            b"const bare_template = `assets/foo.js`;"
             b'import("/assets/usePageHeader-BtGwRGnc.js");'
             b"import('/assets/theme.css');"
             b"const wasm = `/assets/dashboard.wasm`;"
+            b'const font = "fonts/ui.woff2";'
+            b'const favicon = "favicon.ico";'
             b'const card = "/api/hassio_ingress/test/assets/already.js";'
+            b'const local = "./foo.js";'
+            b'const parent = "../foo.js";'
             b'const remote = "https://example.test/assets/remote.js";'
             b'const api = "/api/status";'
+            b'const relative_api = "api/status";'
         )
 
         rewritten = ingress_prefix_proxy.rewrite_javascript(source, prefix).decode("utf-8")
 
+        self.assertIn(
+            'const deps = ["/api/hassio_ingress/test/assets/ConfigPage-DaxHB67Y.js",'
+            '"/api/hassio_ingress/test/assets/rolldown-runtime-CbXtAM7H.js",'
+            '"/api/hassio_ingress/test/assets/react-vendor-BoVnYuL4.js"];',
+            rewritten,
+        )
+        self.assertIn('"/api/hassio_ingress/test/assets/foo.js"', rewritten)
+        self.assertIn("'/api/hassio_ingress/test/assets/foo.js'", rewritten)
+        self.assertIn("`/api/hassio_ingress/test/assets/foo.js`", rewritten)
         self.assertIn('import("/api/hassio_ingress/test/assets/usePageHeader-BtGwRGnc.js")', rewritten)
         self.assertIn("import('/api/hassio_ingress/test/assets/theme.css')", rewritten)
         self.assertIn("`/api/hassio_ingress/test/assets/dashboard.wasm`", rewritten)
+        self.assertIn('"/api/hassio_ingress/test/fonts/ui.woff2"', rewritten)
+        self.assertIn('"/api/hassio_ingress/test/favicon.ico"', rewritten)
         self.assertIn('"/api/hassio_ingress/test/assets/already.js"', rewritten)
+        self.assertIn('"./foo.js"', rewritten)
+        self.assertIn('"../foo.js"', rewritten)
         self.assertIn('"https://example.test/assets/remote.js"', rewritten)
         self.assertIn('"/api/status"', rewritten)
+        self.assertIn('"api/status"', rewritten)
+        self.assertNotIn('"assets/ConfigPage-DaxHB67Y.js"', rewritten)
+        self.assertNotIn('"assets/rolldown-runtime-CbXtAM7H.js"', rewritten)
         self.assertNotIn('"/assets/usePageHeader-BtGwRGnc.js"', rewritten)
         self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', rewritten)
 
@@ -141,7 +170,12 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
                     "Content-MD5": "upstream-javascript-md5",
                     "Content-Encoding": "identity",
                 },
-                text='import("/assets/usePageHeader-BtGwRGnc.js"); const api = "/api/status";',
+                text=(
+                    'const deps = ["assets/ConfigPage-DaxHB67Y.js", '
+                    '"assets/rolldown-runtime-CbXtAM7H.js", '
+                    '"assets/react-vendor-BoVnYuL4.js"]; '
+                    'import("/assets/usePageHeader-BtGwRGnc.js"); const api = "/api/status";'
+                ),
             )
         if request.path == "/assets/untouched.js":
             return web.Response(
@@ -206,8 +240,13 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Content-MD5", response.headers)
         self.assertNotIn("Content-Encoding", response.headers)
         self.assertEqual(int(response.headers["Content-Length"]), len(body.encode("utf-8")))
+        self.assertIn('"/api/hassio_ingress/test/assets/ConfigPage-DaxHB67Y.js"', body)
+        self.assertIn('"/api/hassio_ingress/test/assets/rolldown-runtime-CbXtAM7H.js"', body)
+        self.assertIn('"/api/hassio_ingress/test/assets/react-vendor-BoVnYuL4.js"', body)
         self.assertIn('import("/api/hassio_ingress/test/assets/usePageHeader-BtGwRGnc.js")', body)
         self.assertIn('"/api/status"', body)
+        self.assertNotIn('"assets/ConfigPage-DaxHB67Y.js"', body)
+        self.assertNotIn('"assets/rolldown-runtime-CbXtAM7H.js"', body)
         self.assertNotIn('"/assets/usePageHeader-BtGwRGnc.js"', body)
         self.assert_upstream_request("/assets/lazy.js")
         headers = {name.lower(): value for name, value in self.requests[-1][1]}
