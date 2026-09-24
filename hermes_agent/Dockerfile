@@ -44,9 +44,9 @@ RUN set -eux; \
     install -m 0755 /tmp/rtk/rtk /out/rtk; \
     rm -rf /tmp/ripwire /tmp/rtk /tmp/ripwire.tar.gz /tmp/rtk.tar.gz
 
-FROM nousresearch/hermes-agent:v2026.9.21 AS hermes_assets
+FROM nousresearch/hermes-agent:v2026.9.24 AS hermes_assets
 
-FROM nousresearch/hermes-agent:v2026.9.21
+FROM nousresearch/hermes-agent:v2026.9.24
 
 ARG BUILD_VERSION
 ARG BUILD_ARCH
