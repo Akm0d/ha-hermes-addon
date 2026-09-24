@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.9.21-11
+
+- Mark ingress-adapter rewritten dashboard HTML and JavaScript as `no-store` and remove stale upstream validators.
+
 ## 2026.9.21-10
 
 - Add globally available `ripwire`, `rg`, and `rtk` developer CLI tools, plus idempotent installation of Ripwire's official Hermes skills.

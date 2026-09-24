@@ -20,6 +20,7 @@ JAVASCRIPT_CONTENT_TYPES = {"application/javascript", "application/x-javascript"
 ROOT_STATIC_RESOURCE_LITERAL = re.compile(
     r"(?P<quote>['\"`])(?P<path>/(?:assets|fonts)/[^'\"`\\\s]*|/favicon\.ico)(?P=quote)"
 )
+TRANSFORMED_RESPONSE_HEADERS = {"content-encoding", "content-length", "content-md5", "etag", "last-modified"}
 
 
 def ingress_prefix(headers: Iterable[tuple[str, str]]) -> str | None:
@@ -84,6 +85,15 @@ def rewrite_javascript(body: bytes, prefix: str | None) -> bytes:
     return ROOT_STATIC_RESOURCE_LITERAL.sub(add_prefix, text).encode("utf-8")
 
 
+def transformed_response_headers(headers: CIMultiDict[str]) -> CIMultiDict[str]:
+    """Discard upstream metadata that describes bytes changed by this adapter."""
+    transformed = headers.copy()
+    for name in TRANSFORMED_RESPONSE_HEADERS:
+        transformed.popall(name, None)
+    transformed["Cache-Control"] = "no-store"
+    return transformed
+
+
 async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
     protocols = [value.strip() for value in request.headers.get("Sec-WebSocket-Protocol", "").split(",") if value.strip()]
     downstream = web.WebSocketResponse(protocols=protocols, autoping=False, autoclose=False)
@@ -121,16 +131,18 @@ async def proxy(request: web.Request) -> web.StreamResponse:
     async with ClientSession() as session, session.request(
         request.method, upstream_url(request), headers=headers, data=request.content.iter_any(), allow_redirects=False
     ) as upstream:
-        headers = CIMultiDict(
-            (name, value) for name, value in upstream.headers.items() if name.lower() not in HOP_HEADERS | {"content-length"}
-        )
+        headers = CIMultiDict((name, value) for name, value in upstream.headers.items() if name.lower() not in HOP_HEADERS)
         if upstream.content_type == "text/html":
-            body = rewrite_html(await upstream.read(), ingress_prefix(request.headers.items()))
-            headers.popall("Content-Encoding", None)
+            original_body = await upstream.read()
+            body = rewrite_html(original_body, ingress_prefix(request.headers.items()))
+            if body != original_body:
+                headers = transformed_response_headers(headers)
             return web.Response(status=upstream.status, headers=headers, body=body)
         if upstream.content_type in JAVASCRIPT_CONTENT_TYPES:
-            body = rewrite_javascript(await upstream.read(), ingress_prefix(request.headers.items()))
-            headers.popall("Content-Encoding", None)
+            original_body = await upstream.read()
+            body = rewrite_javascript(original_body, ingress_prefix(request.headers.items()))
+            if body != original_body:
+                headers = transformed_response_headers(headers)
             return web.Response(status=upstream.status, headers=headers, body=body)
         response = web.StreamResponse(status=upstream.status, headers=headers)
         await response.prepare(request)

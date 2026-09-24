@@ -40,6 +40,8 @@ The values are materialized only during add-on startup. Restart the add-on after
 Home Assistant ingress reaches a small compatibility adapter on container port `9119`. It passes HTTP and WebSocket traffic to the upstream s6-supervised dashboard on `127.0.0.1:9120` and translates Supervisor's `X-Ingress-Path` into Hermes' `X-Forwarded-Prefix`. Neither dashboard port is exposed on the host. This preserves SPA routes and prefixed redirects without nginx.
 For compiled dashboard JavaScript, the adapter requests identity encoding and prefixes only root-relative static-resource literals such as `/assets/...` with the current ingress path. This keeps lazy-loaded chunks beneath the Home Assistant ingress route without changing `/api/...` or WebSocket paths.
 
+When the adapter rewrites dashboard HTML or JavaScript, it serves that modified representation with `Cache-Control: no-store` and removes upstream validators. Untouched upstream responses retain their normal cache headers.
+
 ## Hermes A2A
 
 Hermes A2A is exposed on TCP port `9900`. It binds `0.0.0.0:9900` and its public Agent Card is at `/.well-known/agent-card.json`. JSON-RPC requests require the protected `a2a_bearer_token` add-on option, which is materialized only as `A2A_BEARER_TOKEN` at startup.

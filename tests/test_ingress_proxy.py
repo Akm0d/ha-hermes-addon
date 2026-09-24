@@ -115,10 +115,18 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         if request.path in {"/", "/nested/route"}:
             return web.Response(
                 content_type="text/html",
+                headers={
+                    "Cache-Control": "public, max-age=31536000, immutable",
+                    "ETag": '"upstream-html"',
+                    "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT",
+                    "Content-MD5": "upstream-html-md5",
+                    "Content-Encoding": "identity",
+                },
                 text=(
                     f'<script>window.__HERMES_BASE_PATH__="{prefix}";</script>'
                     f'<script type="module" src="{prefix}/assets/index.js"></script>'
                     f'<link rel="stylesheet" href="{prefix}/assets/index.css">'
+                    '<link rel="preload" href="/fonts/ui.woff2">'
                 ),
             )
         if request.path == "/api/status":
@@ -126,8 +134,26 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         if request.path == "/assets/lazy.js":
             return web.Response(
                 content_type="application/javascript",
-                headers={"Cache-Control": "public, max-age=60"},
+                headers={
+                    "Cache-Control": "public, max-age=31536000, immutable",
+                    "ETag": '"upstream-javascript"',
+                    "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT",
+                    "Content-MD5": "upstream-javascript-md5",
+                    "Content-Encoding": "identity",
+                },
                 text='import("/assets/usePageHeader-BtGwRGnc.js"); const api = "/api/status";',
+            )
+        if request.path == "/assets/untouched.js":
+            return web.Response(
+                content_type="application/javascript",
+                headers={
+                    "Cache-Control": "public, max-age=31536000, immutable",
+                    "ETag": '"upstream-untouched"',
+                    "Last-Modified": "Wed, 21 Oct 2015 07:28:00 GMT",
+                    "Content-MD5": "upstream-untouched-md5",
+                    "Content-Encoding": "identity",
+                },
+                text='const api = "/api/status";',
             )
         return web.Response(text=request.path)
 
@@ -146,7 +172,14 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('window.__HERMES_BASE_PATH__="/api/hassio_ingress/test"', html)
         self.assertIn('/api/hassio_ingress/test/assets/index.js', html)
         self.assertIn('/api/hassio_ingress/test/assets/index.css', html)
+        self.assertIn('/api/hassio_ingress/test/fonts/ui.woff2', html)
         self.assertNotIn('/api/hassio_ingress/test/api/hassio_ingress/test', html)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("ETag", response.headers)
+        self.assertNotIn("Last-Modified", response.headers)
+        self.assertNotIn("Content-MD5", response.headers)
+        self.assertNotIn("Content-Encoding", response.headers)
+        self.assertEqual(int(response.headers["Content-Length"]), len(html.encode("utf-8")))
         self.assert_upstream_request("/")
 
     async def test_assets_api_and_spa_reload_keep_a_single_prefix(self) -> None:
@@ -167,7 +200,11 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(response.content_type, "application/javascript")
-        self.assertEqual(response.headers["Cache-Control"], "public, max-age=60")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("ETag", response.headers)
+        self.assertNotIn("Last-Modified", response.headers)
+        self.assertNotIn("Content-MD5", response.headers)
+        self.assertNotIn("Content-Encoding", response.headers)
         self.assertEqual(int(response.headers["Content-Length"]), len(body.encode("utf-8")))
         self.assertIn('import("/api/hassio_ingress/test/assets/usePageHeader-BtGwRGnc.js")', body)
         self.assertIn('"/api/status"', body)
@@ -175,6 +212,21 @@ class IngressAdapterIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assert_upstream_request("/assets/lazy.js")
         headers = {name.lower(): value for name, value in self.requests[-1][1]}
         self.assertEqual(headers[b"accept-encoding"], b"identity")
+
+    async def test_untouched_javascript_keeps_upstream_cache_headers(self) -> None:
+        async with ClientSession() as session:
+            async with session.get(self.adapter_url + "/assets/untouched.js", headers=self.ingress_headers()) as response:
+                body = await response.text()
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body, 'const api = "/api/status";')
+        self.assertEqual(response.headers["Cache-Control"], "public, max-age=31536000, immutable")
+        self.assertEqual(response.headers["ETag"], '"upstream-untouched"')
+        self.assertEqual(response.headers["Last-Modified"], "Wed, 21 Oct 2015 07:28:00 GMT")
+        self.assertEqual(response.headers["Content-MD5"], "upstream-untouched-md5")
+        self.assertEqual(response.headers["Content-Encoding"], "identity")
+        self.assertEqual(int(response.headers["Content-Length"]), len(body.encode("utf-8")))
+        self.assert_upstream_request("/assets/untouched.js")
 
     async def test_websocket_uses_logical_path_and_one_forwarded_prefix(self) -> None:
         async with ClientSession() as session:
