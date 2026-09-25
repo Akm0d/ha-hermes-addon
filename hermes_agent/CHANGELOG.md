@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.9.24-2
+
+- Preserve user-installed Hermes plugins across Home Assistant add-on image upgrades by keeping user plugins under the persistent `/opt/data/plugins/` Hermes home.
+- Add the persistent Hermes command compatibility symlink expected by `hermes doctor` without persisting image-owned application files.
+- Add upgrade-persistence tests covering user plugins, sessions, memories, API credentials, bundled `ha-terminal`, restart idempotency, and image replacement.
+- Make future automatic Hermes stable-container upgrades update the add-on changelog atomically.
+
+## 2026.9.24-1
+
+- Upgraded Hermes container to stable version v2026.9.24.
+
 ## 2026.9.21-15
 
 - Remove the redundant Home Assistant API-key option and rely on Hermes' persistent `/opt/data/.env` key lifecycle.

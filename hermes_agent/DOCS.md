@@ -18,6 +18,38 @@ Home Assistant's persistent add-on data mount is provided at `/opt/data`, Hermes
 - `/opt/data/skills/`
 - `/opt/data/workspace/`
 
+`/opt/data` is the persistent boundary. The upstream image intentionally keeps
+application code, its virtual environment, bundled plugins, bundled skills,
+and dashboard assets under `/opt/hermes`; Home Assistant replaces those files
+on an add-on image upgrade.
+
+### Plugins and upgrades
+
+`hermes plugins install` uses Hermes' canonical user-plugin directory,
+`/opt/data/plugins/`. It is therefore preserved when Home Assistant recreates
+the add-on container during an upgrade. Hermes searches that user root before
+the image-owned bundled root, `/opt/hermes/plugins/`, so user-installed plugins
+and upstream bundled plugins remain separate and both stay discoverable.
+
+The add-on's `ha-terminal` plugin is bundled image content at
+`/opt/hermes/plugins/ha-terminal`; every replacement image supplies it again.
+It is intentionally not copied into the persistent user-plugin root, which
+avoids silently overwriting a user-managed plugin. Do not store manual plugin
+changes under `/opt/hermes`: that tree is immutable and replaced by upgrades.
+
+Hermes also persists user configuration, credentials, skills, sessions,
+memories, cron state, profiles, logs, plans, workspace data, and state
+databases under `/opt/data`. Re-creatable caches such as lazy-installed Python
+packages also live there because they are Hermes-home scoped, but they are not
+treated as durable user data. The add-on does not make `/opt/hermes` persistent
+or copy the application installation into `/opt/data`.
+
+The repository includes `tests/upgrade_persistence.sh` for maintainers. Given
+an old and replacement image, it creates a persistent user plugin and Hermes
+state, replaces the container while retaining its `/opt/data` volume, verifies
+both that user plugin and bundled `ha-terminal` are discovered, restarts the
+replacement, and runs `hermes doctor`.
+
 ## Configuration and API key
 
 The add-on has no Home Assistant Options fields. Hermes exclusively owns `/opt/data/config.yaml`, `/opt/data/.env`, and all other runtime state under `/opt/data`.
@@ -88,7 +120,7 @@ If you want the full upstream setup flow, install notes, and provider details, s
 
 ## Notes
 
-- This add-on pins Hermes to `v2026.9.21`.
+- This add-on pins Hermes to `v2026.9.24`.
 - Supported Home Assistant architectures are `amd64` and `aarch64`.
 - There is no separate terminal service, model/provider configuration, nginx, direct dashboard host exposure, configuration synchronizer, or custom process supervisor.
 - The official Home Assistant CLI is copied from the pinned `ghcr.io/home-assistant/<arch>-hassio-cli:2026.09.0` image at build time.

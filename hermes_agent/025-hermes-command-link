@@ -1,0 +1,42 @@
+#!/command/with-contenv sh
+
+# Keep Hermes' host-installation compatibility link correct without persisting
+# any part of the image-owned install tree.  Hermes doctor expects this link
+# under HOME; in the container HOME is the persistent Hermes home.
+set -eu
+
+hermes_home=${HERMES_HOME:-/opt/data}
+link_dir=${hermes_home}/.local/bin
+link=${link_dir}/hermes
+target=/opt/hermes/.venv/bin/hermes
+
+if [ ! -x "${target}" ]; then
+    echo "[ha-addon] Hermes command target is missing: ${target}" >&2
+    exit 1
+fi
+
+if [ -L "${link}" ]; then
+    current_target=$(readlink "${link}")
+    if [ "${current_target}" = "${target}" ]; then
+        echo "[ha-addon] Hermes command link is current"
+        exit 0
+    fi
+    case "${current_target}" in
+        /opt/hermes/.venv/bin/hermes|/opt/hermes/venv/bin/hermes)
+            rm "${link}"
+            echo "[ha-addon] Replacing stale Hermes command link"
+            ;;
+        *)
+            echo "[ha-addon] Leaving user-managed Hermes command link unchanged: ${link}" >&2
+            exit 0
+            ;;
+    esac
+elif [ -e "${link}" ]; then
+    echo "[ha-addon] Leaving user-managed Hermes command file unchanged: ${link}" >&2
+    exit 0
+fi
+
+mkdir -p "${link_dir}"
+chown hermes:hermes "${hermes_home}/.local" "${link_dir}" 2>/dev/null || true
+s6-setuidgid hermes ln -s "${target}" "${link}"
+echo "[ha-addon] Created Hermes command link"

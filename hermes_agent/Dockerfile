@@ -56,6 +56,7 @@ COPY --from=developer_tools /out/ripwire /usr/local/bin/ripwire
 COPY --from=developer_tools /out/rtk /usr/local/bin/rtk
 COPY --from=developer_tools /out/ripwire-skills /opt/hermes/ripwire-skills
 COPY --chmod=0755 install-ripwire-skills.sh /usr/local/lib/install-ripwire-skills.sh
+COPY --chmod=0755 025-hermes-command-link /etc/cont-init.d/025-hermes-command-link
 COPY --chmod=0755 03-ripwire-skills /etc/cont-init.d/03-ripwire-skills
 COPY --chmod=0755 ingress-prefix-proxy.py /usr/local/lib/hermes-ingress-prefix-proxy.py
 COPY --chmod=0755 ingress-prefix-proxy /etc/services.d/hermes-ingress-prefix-proxy/run

@@ -79,16 +79,7 @@ jobs:
           set -euo pipefail
 
           TAG="${{ steps.hermes.outputs.tag }}"
-          VERSION="${TAG#v}"
-          ADDON_VERSION="${VERSION}-1"
-
-          sed -E -i \
-            "s|^FROM nousresearch/hermes-agent:[^[:space:]]*|FROM nousresearch/hermes-agent:${TAG}|" \
-            hermes_agent/Dockerfile
-
-          sed -i \
-            "s|^version: .*$|version: \"${ADDON_VERSION}\"|" \
-            hermes_agent/config.yaml
+          python3 .github/scripts/update_hermes_release.py "${TAG}"
 
           git diff --check
           git diff
@@ -106,7 +97,8 @@ jobs:
 
           git add \
             hermes_agent/Dockerfile \
-            hermes_agent/config.yaml
+            hermes_agent/config.yaml \
+            hermes_agent/CHANGELOG.md
 
           git commit -m "Update Hermes to ${TAG}"
           git push

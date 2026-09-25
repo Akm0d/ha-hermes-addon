@@ -29,6 +29,7 @@ GitHub repository:
 
 - Supported architectures: `amd64`, `aarch64`
 - Hermes state is stored in Home Assistant's persistent add-on data mount at `/opt/data`
+- User-installed Hermes plugins live in `/opt/data/plugins/` and survive add-on image upgrades; `/opt/hermes` remains image-owned.
 - The Hermes OpenAI-compatible API is exposed on TCP port `8642`
 - Authenticated Hermes A2A is exposed on TCP port `9900`
 - The Hermes dashboard is available only through Home Assistant ingress; TCP port `9119` is not host-exposed

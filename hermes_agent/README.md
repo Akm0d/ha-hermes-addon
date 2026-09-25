@@ -10,4 +10,4 @@ Highlights:
 - persistent Hermes state stored at its normal Docker home, `/opt/data`
 - bundled `ripwire`, `rg`, and `rtk` developer CLIs for Hermes agents and the dashboard Terminal
 - support for `amd64` and `aarch64`
-- pinned to `nousresearch/hermes-agent:v2026.9.21`
+- pinned to `nousresearch/hermes-agent:v2026.9.24`
