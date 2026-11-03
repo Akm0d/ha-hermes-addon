@@ -1,0 +1,39 @@
+name: Validate Hermes Home Assistant Docker build
+
+on:
+  pull_request:
+    paths:
+      - "hermes_agent/**"
+      - ".github/scripts/update_hermes_release.py"
+      - ".github/workflows/update-hermes.yml"
+      - ".github/workflows/test-docker-build.yml"
+      - "tests/test_update_hermes_release.py"
+      - "tests/test_terminal_asset_pipeline.py"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Verify release and terminal contracts
+        run: |
+          python3 -m unittest discover -s tests -p 'test_update_hermes_release.py' -v
+          python3 -m unittest discover -s tests -p 'test_terminal_asset_pipeline.py' -v
+      - name: Build amd64 image as Home Assistant Supervisor does
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADDON_VERSION="$(sed -n 's/^version: "\([^"]*\)"$/\1/p' hermes_agent/config.yaml)"
+          test -n "$ADDON_VERSION"
+          docker build --pull --platform linux/amd64 --progress=plain \
+            --build-arg BUILD_ARCH=amd64 \
+            --build-arg "BUILD_VERSION=$ADDON_VERSION" \
+            --file hermes_agent/Dockerfile \
+            --tag hermes-addon-build-check:latest \
+            hermes_agent

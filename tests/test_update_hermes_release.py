@@ -100,20 +100,39 @@ class HermesReleaseUpdaterTest(unittest.TestCase):
             self.assertIn("## 3001.0.0-1", changelog.read_text(encoding="utf-8"))
             self.assertFalse(update_hermes_release.update_release(dockerfile, config, changelog, "v1.0.0"))
 
+    def test_single_upstream_from_updates_automatically(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            dockerfile.write_text(
+                "FROM nousresearch/hermes-agent:v0.22.6\n",
+                encoding="utf-8",
+            )
+            config.write_text('version: "3000.22.6-2"\n', encoding="utf-8")
+            changelog.write_text(
+                "# Changelog\n\n## 3000.22.6-2\n\n- Packaging fix.\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.7"))
+            self.assertIn("FROM nousresearch/hermes-agent:v0.22.7", dockerfile.read_text())
+            self.assertIn('version: "3000.22.7-1"', config.read_text())
+            self.assertFalse(update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.7"))
+
     def test_repository_manifest_matches_upstream_image(self) -> None:
         root = Path(__file__).parents[1]
         dockerfile = (root / "hermes_agent" / "Dockerfile").read_text(encoding="utf-8")
         manifest = (root / "hermes_agent" / "config.yaml").read_text(encoding="utf-8")
         images = update_hermes_release.FROM_PATTERN.findall(dockerfile)
-        self.assertEqual(len(images), 2)
-        self.assertEqual(images[0][1], images[1][1])
+        self.assertEqual(len(images), 1)
         match = update_hermes_release.TAG_PATTERN.fullmatch(images[0][1])
         self.assertIsNotNone(match)
         expected = (
             f'{update_hermes_release.ADDON_MAJOR_OFFSET + int(match.group("major"))}.'
-            f'{match.group("minor")}.{match.group("patch")}-1'
+            f'{match.group("minor")}.{match.group("patch")}'
         )
-        self.assertIn(f'version: "{expected}"', manifest)
+        self.assertRegex(manifest, rf'(?m)^version: "{expected}-[1-9][0-9]*"$')
 
     def test_rejects_nightly_or_prerelease_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

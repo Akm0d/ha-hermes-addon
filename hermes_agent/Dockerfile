@@ -7,6 +7,16 @@ ARG RTK_VERSION=0.49.0
 
 FROM ghcr.io/home-assistant/${BUILD_ARCH}-hassio-cli:${HA_CLI_VERSION} AS ha_cli
 
+# The upstream Hermes runtime no longer guarantees a root-level node_modules
+# layout. Bundle the standalone terminal's browser assets independently.
+FROM --platform=${BUILDPLATFORM} node:24-bookworm-slim AS terminal_assets
+RUN set -eux; \
+    npm install --prefix /tmp/ha-terminal-assets --no-save --ignore-scripts --no-audit --no-fund \
+      @xterm/xterm@6.0.0 @xterm/addon-fit@0.11.0; \
+    test -s /tmp/ha-terminal-assets/node_modules/@xterm/xterm/lib/xterm.js; \
+    test -s /tmp/ha-terminal-assets/node_modules/@xterm/xterm/css/xterm.css; \
+    test -s /tmp/ha-terminal-assets/node_modules/@xterm/addon-fit/lib/addon-fit.js
+
 FROM --platform=${BUILDPLATFORM} debian:bookworm-slim AS developer_tools
 
 ARG BUILD_ARCH
@@ -44,8 +54,6 @@ RUN set -eux; \
     install -m 0755 /tmp/rtk/rtk /out/rtk; \
     rm -rf /tmp/ripwire /tmp/rtk /tmp/ripwire.tar.gz /tmp/rtk.tar.gz
 
-FROM nousresearch/hermes-agent:v0.22.6 AS hermes_assets
-
 FROM nousresearch/hermes-agent:v0.22.6
 
 ARG BUILD_VERSION
@@ -61,9 +69,9 @@ COPY --chmod=0755 03-ripwire-skills /etc/cont-init.d/03-ripwire-skills
 COPY --chmod=0755 ingress-prefix-proxy.py /usr/local/lib/hermes-ingress-prefix-proxy.py
 COPY --chmod=0755 ingress-prefix-proxy /etc/services.d/hermes-ingress-prefix-proxy/run
 COPY plugins/ha-terminal /opt/hermes/plugins/ha-terminal
-COPY --from=hermes_assets /opt/hermes/node_modules/@xterm/xterm/lib/xterm.js /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm.js
-COPY --from=hermes_assets /opt/hermes/node_modules/@xterm/xterm/css/xterm.css /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm.css
-COPY --from=hermes_assets /opt/hermes/node_modules/@xterm/addon-fit/lib/addon-fit.js /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm-fit.js
+COPY --from=terminal_assets /tmp/ha-terminal-assets/node_modules/@xterm/xterm/lib/xterm.js /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm.js
+COPY --from=terminal_assets /tmp/ha-terminal-assets/node_modules/@xterm/xterm/css/xterm.css /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm.css
+COPY --from=terminal_assets /tmp/ha-terminal-assets/node_modules/@xterm/addon-fit/lib/addon-fit.js /opt/hermes/plugins/ha-terminal/dashboard/dist/xterm-fit.js
 
 LABEL \
   io.hass.version="${BUILD_VERSION}" \

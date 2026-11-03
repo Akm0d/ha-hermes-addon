@@ -1,5 +1,10 @@
 # Changelog
 
+## 3000.22.6-2
+
+- Restore the Home Assistant add-on Docker build against upstream Hermes v0.22.6 by sourcing pinned xterm.js browser assets from an independent Node build stage instead of the upstream image's internal node_modules layout.
+- Add a Docker build gate to release automation so incompatible upstream images cannot be auto-published without a successful add-on image build.
+
 ## 3000.22.6-1
 
 - Change Home Assistant add-on versioning to 3000 plus the upstream Hermes major, so the current v0.22.6 image supersedes legacy add-on 2026.9.24-2.

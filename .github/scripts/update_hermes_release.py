@@ -42,8 +42,8 @@ def update_release(dockerfile: Path, config: Path, changelog: Path, tag: str) ->
 
     dockerfile_text = dockerfile.read_text(encoding="utf-8")
     from_matches = FROM_PATTERN.findall(dockerfile_text)
-    if len(from_matches) != 2:
-        raise ValueError(f"Expected exactly two Hermes FROM lines, found {len(from_matches)}")
+    if len(from_matches) not in (1, 2):
+        raise ValueError(f"Expected one or two Hermes FROM lines, found {len(from_matches)}")
     current_tags = {match[1] for match in from_matches}
     if len(current_tags) != 1:
         raise ValueError(f"Hermes FROM lines disagree: {sorted(current_tags)}")
