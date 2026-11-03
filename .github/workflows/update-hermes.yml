@@ -84,6 +84,26 @@ jobs:
           git diff --check
           git diff
 
+      - name: Validate release updater and terminal asset contract
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          python3 -m unittest discover -s tests -p 'test_update_hermes_release.py' -v
+          python3 -m unittest discover -s tests -p 'test_terminal_asset_pipeline.py' -v
+
+      - name: Build Home Assistant image before publishing release
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADDON_VERSION="$(sed -n 's/^version: "\([^"]*\)"$/\1/p' hermes_agent/config.yaml)"
+          test -n "$ADDON_VERSION"
+          docker build --pull --platform linux/amd64 --progress=plain \
+            --build-arg BUILD_ARCH=amd64 \
+            --build-arg "BUILD_VERSION=$ADDON_VERSION" \
+            --file hermes_agent/Dockerfile \
+            --tag hermes-ha-release-check:latest \
+            hermes_agent
+
       - name: Commit and push
         if: steps.check.outputs.needed == 'true'
         shell: bash
