@@ -10,7 +10,8 @@ import tempfile
 from pathlib import Path
 
 
-TAG_PATTERN = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)$")
+TAG_PATTERN = re.compile(r"^v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)$")
+ADDON_MAJOR_OFFSET = 3000
 FROM_PATTERN = re.compile(r"^(FROM nousresearch/hermes-agent:)([^\s]+)(.*)$", re.MULTILINE)
 
 
@@ -32,7 +33,10 @@ def update_release(dockerfile: Path, config: Path, changelog: Path, tag: str) ->
     if not match:
         raise ValueError(f"Unsupported Hermes stable tag: {tag!r}")
 
-    addon_version = f"{match.group('version')}-1"
+    # Independent HA numbering: 3000 plus upstream major, to supersede legacy
+    # calendar-based add-on versions after Hermes switched release tag formats.
+    addon_major = ADDON_MAJOR_OFFSET + int(match.group("major"))
+    addon_version = f'{addon_major}.{match.group("minor")}.{match.group("patch")}-1'
     heading = f"## {addon_version}"
     entry = f"- Upgraded Hermes container to stable version {tag}."
 
@@ -88,7 +92,7 @@ def update_release(dockerfile: Path, config: Path, changelog: Path, tag: str) ->
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tag", help="stable Hermes tag, for example v2026.9.24")
+    parser.add_argument("tag", help="stable Hermes tag, for example v0.22.6")
     parser.add_argument("--dockerfile", type=Path, default=Path("hermes_agent/Dockerfile"))
     parser.add_argument("--config", type=Path, default=Path("hermes_agent/config.yaml"))
     parser.add_argument("--changelog", type=Path, default=Path("hermes_agent/CHANGELOG.md"))
