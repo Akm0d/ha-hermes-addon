@@ -1,5 +1,10 @@
 # Changelog
 
+## 3000.22.6-1
+
+- Change Home Assistant add-on versioning to 3000 plus the upstream Hermes major, so the current v0.22.6 image supersedes legacy add-on 2026.9.24-2.
+- No change to the Docker image: still Hermes v0.22.6.
+
 ## 0.22.6-1
 
 - Upgraded Hermes container to stable version v0.22.6.
