@@ -1,0 +1,19 @@
+name: Test Hermes release updater
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  test-release-updater:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run release updater regression tests
+        run: python3 -m unittest discover -s tests -p 'test_update_hermes_release.py' -v
