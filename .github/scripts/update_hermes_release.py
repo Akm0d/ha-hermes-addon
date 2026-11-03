@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 
-TAG_PATTERN = re.compile(r"^v(?P<version>\d{4}\.\d+\.\d+)$")
+TAG_PATTERN = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)$")
 FROM_PATTERN = re.compile(r"^(FROM nousresearch/hermes-agent:)([^\s]+)(.*)$", re.MULTILINE)
 
 
