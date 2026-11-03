@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.6-1
+
+- Upgraded Hermes container to stable version v0.22.6.
+
 ## 2026.9.24-2
 
 - Preserve user-installed Hermes plugins across Home Assistant add-on image upgrades by keeping user plugins under the persistent `/opt/data/plugins/` Hermes home.
