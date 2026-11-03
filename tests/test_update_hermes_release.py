@@ -130,9 +130,9 @@ class HermesReleaseUpdaterTest(unittest.TestCase):
         self.assertIsNotNone(match)
         expected = (
             f'{update_hermes_release.ADDON_MAJOR_OFFSET + int(match.group("major"))}.'
-            f'{match.group("minor")}.{match.group("patch")}-1'
+            f'{match.group("minor")}.{match.group("patch")}'
         )
-        self.assertRegex(manifest, rf'(?m)^version: "{expected}-[1-9][0-9]*"
+        self.assertRegex(manifest, rf'(?m)^version: "{expected}-[1-9][0-9]*"$')
 
     def test_rejects_nightly_or_prerelease_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
