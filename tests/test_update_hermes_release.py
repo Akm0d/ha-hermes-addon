@@ -100,20 +100,93 @@ class HermesReleaseUpdaterTest(unittest.TestCase):
             self.assertIn("## 3001.0.0-1", changelog.read_text(encoding="utf-8"))
             self.assertFalse(update_hermes_release.update_release(dockerfile, config, changelog, "v1.0.0"))
 
+    def test_single_upstream_from_updates_automatically(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            dockerfile.write_text(
+                "FROM nousresearch/hermes-agent:v0.22.6\n",
+                encoding="utf-8",
+            )
+            config.write_text('version: "3000.22.6-2"\n', encoding="utf-8")
+            changelog.write_text(
+                "# Changelog\n\n## 3000.22.6-2\n\n- Packaging fix.\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.7"))
+            self.assertIn("FROM nousresearch/hermes-agent:v0.22.7", dockerfile.read_text())
+            self.assertIn('version: "3000.22.7-1"', config.read_text())
+            self.assertFalse(update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.7"))
+
     def test_repository_manifest_matches_upstream_image(self) -> None:
         root = Path(__file__).parents[1]
         dockerfile = (root / "hermes_agent" / "Dockerfile").read_text(encoding="utf-8")
         manifest = (root / "hermes_agent" / "config.yaml").read_text(encoding="utf-8")
         images = update_hermes_release.FROM_PATTERN.findall(dockerfile)
-        self.assertEqual(len(images), 2)
-        self.assertEqual(images[0][1], images[1][1])
+        self.assertEqual(len(images), 1)
         match = update_hermes_release.TAG_PATTERN.fullmatch(images[0][1])
         self.assertIsNotNone(match)
         expected = (
             f'{update_hermes_release.ADDON_MAJOR_OFFSET + int(match.group("major"))}.'
             f'{match.group("minor")}.{match.group("patch")}-1'
         )
-        self.assertIn(f'version: "{expected}"', manifest)
+        self.assertRegex(manifest, rf'(?m)^version: "{expected}-[1-9][0-9]*"
+
+    def test_rejects_nightly_or_prerelease_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            for path in (dockerfile, config, changelog):
+                path.write_text("# placeholder\n", encoding="utf-8")
+            for tag in ("v0.22.6-rc.1", "v0.22.6.dev1", "nightly", "latest"):
+                with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "Unsupported Hermes stable tag"):
+                    update_hermes_release.update_release(dockerfile, config, changelog, tag)
+
+    def test_rejects_duplicate_or_malformed_changelog_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            dockerfile.write_text(
+                "FROM nousresearch/hermes-agent:v2026.9.21 AS hermes_assets\n"
+                "FROM nousresearch/hermes-agent:v2026.9.21\n",
+                encoding="utf-8",
+            )
+            config.write_text('version: "2026.9.21-15"\n', encoding="utf-8")
+            changelog.write_text("# Changelog\n\n## 5026.9.24-1\n\n- Different entry.\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "does not contain"):
+                update_hermes_release.update_release(dockerfile, config, changelog, "v2026.9.24")
+
+    def test_same_upstream_tag_does_not_downgrade_a_manual_addon_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            dockerfile.write_text(
+                "FROM nousresearch/hermes-agent:v2026.9.24 AS hermes_assets\n"
+                "FROM nousresearch/hermes-agent:v2026.9.24\n",
+                encoding="utf-8",
+            )
+            config.write_text('version: "2026.9.24-2"\n', encoding="utf-8")
+            changelog.write_text(
+                "# Changelog\n\n## 2026.9.24-2\n\n- Add-on-only fix.\n\n"
+                "## 2026.9.24-1\n\n- Upgraded Hermes container to stable version v2026.9.24.\n",
+                encoding="utf-8",
+            )
+
+            changed = update_hermes_release.update_release(dockerfile, config, changelog, "v2026.9.24")
+
+            self.assertFalse(changed)
+            self.assertIn('version: "2026.9.24-2"', config.read_text(encoding="utf-8"))
+            self.assertEqual(changelog.read_text(encoding="utf-8").count("## 2026.9.24-1"), 1)
+)
 
     def test_rejects_nightly_or_prerelease_tags(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
