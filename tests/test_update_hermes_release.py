@@ -54,6 +54,44 @@ class HermesReleaseUpdaterTest(unittest.TestCase):
             self.assertFalse(second_changed)
             self.assertEqual(changelog.read_text(encoding="utf-8").count("## 2026.9.24-1"), 1)
 
+    def test_accepts_semver_release_after_calendar_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            dockerfile.write_text(
+                "FROM nousresearch/hermes-agent:v2026.9.24 AS hermes_assets\n"
+                "FROM nousresearch/hermes-agent:v2026.9.24\n",
+                encoding="utf-8",
+            )
+            config.write_text('version: "2026.9.24-2"\n', encoding="utf-8")
+            changelog.write_text(
+                "# Changelog\n\n## 2026.9.24-2\n\n- Previous add-on revision.\n",
+                encoding="utf-8",
+            )
+
+            changed = update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.6")
+
+            self.assertTrue(changed)
+            self.assertEqual(dockerfile.read_text(encoding="utf-8").count("v0.22.6"), 2)
+            self.assertIn('version: "0.22.6-1"', config.read_text(encoding="utf-8"))
+            self.assertIn("## 0.22.6-1", changelog.read_text(encoding="utf-8"))
+            self.assertFalse(update_hermes_release.update_release(dockerfile, config, changelog, "v0.22.6"))
+            self.assertEqual(changelog.read_text(encoding="utf-8").count("## 0.22.6-1"), 1)
+
+    def test_rejects_nightly_or_prerelease_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            config = root / "config.yaml"
+            changelog = root / "CHANGELOG.md"
+            for path in (dockerfile, config, changelog):
+                path.write_text("# placeholder\n", encoding="utf-8")
+            for tag in ("v0.22.6-rc.1", "v0.22.6.dev1", "nightly", "latest"):
+                with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "Unsupported Hermes stable tag"):
+                    update_hermes_release.update_release(dockerfile, config, changelog, tag)
+
     def test_rejects_duplicate_or_malformed_changelog_sections(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
